@@ -7,7 +7,7 @@
 
 # Bannarr
 
-### for any Linux box
+### SSH banners, your way
 
 **Design the banner your servers greet you with when you SSH in.**
 
