@@ -158,7 +158,9 @@ You can also skip the menus and do common jobs directly:
 
 Containers made with community-scripts come with their own banner:
 - **First run:** Bannarr finds that banner's title (such as "Plex LXC Container") and its
-  community-scripts credit line, and asks whether to keep each one in your new banner.
+  community-scripts credit line, and asks whether to keep each one in your new banner. It
+  also offers to hide the plain copy of the title and OS these containers print above the
+  banner.
 - **Saving:** Bannarr switches the original banner off so you don't see two, without deleting
   or changing it.
 - **Going back** to the original (**r** in the menu, or `--revert`) switches it on again.

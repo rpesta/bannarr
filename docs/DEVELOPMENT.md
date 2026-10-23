@@ -269,20 +269,71 @@ contrast against both white and black.
 
 ## Submitting to community-scripts
 
-According to the [docs](https://community-scripts.org/docs/tools/addon/readme), add-ons live
-at `tools/addon/<name>.sh` in
-[community-scripts/ProxmoxVE](https://github.com/community-scripts/ProxmoxVE). Before opening a
-PR:
+This repository stays the source. community-scripts gets a **generated copy** in its own
+format, so you only ever maintain one `bannarr.sh`.
 
-- [ ] Source the shared helpers (`core.func`, `tools.func`, `error_handler.func`) like the
-      other add-ons, and drop the stand-in `msg_*` functions (see `TODO(PR)` in the script).
-- [ ] Switch the header to the community-scripts copyright and source lines.
-- [ ] Add the website/JSON metadata entry the repo expects for add-ons.
-- [ ] Decide on run mode: the docs say add-ons run on the Proxmox host and target a chosen
-      container, while Bannarr runs on the box it customises. A host wrapper could
-      `pct push` the script and `pct exec` it; the editor is interactive, so it would need
-      `pct enter` or a TTY.
-- [ ] Test on Debian, Ubuntu, Alpine, Fedora/Rocky, Arch and openSUSE guests.
+### Their rules
+
+These come from the [DevScripts README](https://github.com/community-scripts/DevScripts),
+its [`AGENTS.md`](https://github.com/community-scripts/DevScripts/blob/main/AGENTS.md), the
+add-on template `tools/addon/_template.sh`, and the ProxmoxVE pull request template, as of
+October 2026.
+
+| Rule | How Bannarr meets it |
+| ---- | -------------------- |
+| New scripts go to **DevScripts**, not ProxmoxVE. PRs without prior testing are closed | Open the PR against [community-scripts/DevScripts](https://github.com/community-scripts/DevScripts). Maintainers move it to ProxmoxVE after community testing |
+| Add-ons live in `tools/addon/` and run **inside the guest** | `tools/addon/bannarr.sh`, which runs on the box it customises |
+| Header: `Copyright (c) 2021-2026 community-scripts ORG`, `Author: Name (GitHubUsername)`, their MIT link, `Source:` the project URL | The generator writes it |
+| Source `core.func` and `tools.func` from `COMMUNITY_SCRIPTS_CORE_URL`, as the add-on template does | The generator replaces the `devscripts-core` block with those two lines |
+| `APP="…"` and `APP_TYPE="addon"` | Already in `bannarr.sh` |
+| Messages name the app; no `$APP` / `${APPLICATION}` placeholders | `bannarr.sh` writes "Bannarr"; checked |
+| Every `msg_info` is closed by exactly one `msg_ok`; notices use `msg_warn` | Bannarr has no progress messages, only notices, so it uses `msg_warn`; checked |
+| No decorative comment banners (`----`, `====`, `####`) | Removed from `bannarr.sh`; checked |
+| No core packages as dependencies (`curl`, `sudo`, `wget`, `jq` and `mc` are pre-installed) | Bannarr installs nothing; checked |
+| "No functions of your own" | Applies to `ct/` and `install/` scripts only; add-ons, including the template, define functions |
+| AI use must be disclosed, with the model name and reasoning level, and the script must follow their `AGENTS.md` and `pve-script-creator.agent.md` | Pre-filled in the generated PR description; fill in the reasoning level |
+| "Tested on:" must be filled in | Test on real containers first (see below) |
+
+### Generate the add-on
+
+```bash
+scripts/build-devscripts.sh          # writes dist/devscripts/ (git-ignored)
+```
+
+The script writes two files:
+- **`dist/devscripts/tools/addon/bannarr.sh`:** the add-on, laid out like their repository.
+- **`dist/devscripts/PR_DESCRIPTION.md`:** their PR template, pre-filled. It describes what
+  Bannarr does and lists the rules that can't be followed as written, with the reason for each.
+
+It changes 15 lines (header, helper source lines, docs link) and then checks the result
+against the rules above. It exits non-zero if any check fails. Never edit the output: change
+`bannarr.sh` and run it again.
+
+Two things in `bannarr.sh` exist for the generated copy and must stay:
+- **The `devscripts-core` marker block** near the top, where the source lines go.
+- **`trap 'exit 130' INT TERM`.** Their `core.func` traps INT and TERM with a handler that only
+  stops its spinner, so without this line Ctrl+C would no longer quit the editor.
+
+Their `core.func` and `tools.func` share only three function names with Bannarr: `msg_ok`,
+`msg_warn` and `msg_error`. Bannarr defines its own after the source lines, so its versions
+win.
+
+### Before opening the pull request
+
+- [ ] Test the **generated** add-on on real containers: Debian, Ubuntu and Alpine at least, plus
+      Fedora/Rocky, Arch and openSUSE if possible. Cover a fresh community-scripts container
+      (first-run questions, save, SSH login, `--revert`) and a plain VM.
+- [ ] Check what `core.func` does when sourced on a real container. It was only compared by
+      name here, not run.
+- [ ] Run `scripts/build-devscripts.sh`, and make sure every check passes.
+- [ ] Fork [community-scripts/DevScripts](https://github.com/community-scripts/DevScripts) and
+      copy `dist/devscripts/tools/addon/bannarr.sh` into it.
+- [ ] Open the PR with `dist/devscripts/PR_DESCRIPTION.md` as its body. Fill in every `TODO`
+      (the reasoning level and "Tested on"), and tick the prerequisites you've actually done.
+- [ ] Ask in the PR, or on their Discord, how add-ons are listed on the website. DevScripts
+      has no `json/` files for add-ons.
+- [ ] Once it's being tested, follow the issue and Discord thread they open and answer feedback
+      there.
 
 ## Ideas
 

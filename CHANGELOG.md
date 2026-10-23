@@ -33,7 +33,10 @@ special handling for containers made with community-scripts.
   editing it.
 - **Community-scripts title and credit.** On first run, Bannarr reads the original banner's
   title (such as "Plex LXC Container") and its community-scripts credit line, and asks whether
-  to keep each one.
+  to keep each one. It also offers to hide the plain title-and-OS copy that community-scripts
+  writes to `/etc/motd`, using the reversible quiet mode.
+- **openSUSE support.** The installed banner is executable, because openSUSE only loads
+  executable `profile.d` scripts for some shells.
 - **Backups.** Named backups, a restore with a preview first, and automatic backups before
   every apply (the last 5 are kept).
 - **Quiet login** (opt-in). Hides the other login messages (`/etc/motd`, `update-motd.d`,

@@ -11,7 +11,13 @@ bash -n bannarr.sh                                    # syntax-check the editor
 BANNARR_ETC_DIR=/tmp/bn/etc bash bannarr.sh --apply   # run against a fake /etc, no root needed
 sh -n /tmp/bn/etc/profile.d/00_bannarr.sh             # syntax-check a generated banner
 shellcheck -s sh /tmp/bn/etc/profile.d/00_bannarr.sh  # if installed
+scripts/build-devscripts.sh                           # build + check the community-scripts copy
 ```
+
+`scripts/build-devscripts.sh` generates the community-scripts (DevScripts) version in
+`dist/devscripts/` and checks it against their rules. Run it after any change to
+`bannarr.sh`. Keep the `devscripts-core` marker block and the `trap 'exit 130' INT TERM` line
+in `bannarr.sh`, because the generated copy depends on both.
 
 The longer notes (how it works, the files it touches, the settings and function references,
 testing, the community-scripts submission checklist) live in `docs/DEVELOPMENT.md`. They are
