@@ -36,10 +36,13 @@ special handling for containers made with community-scripts.
 - **Install method.** Bannarr writes its own `/etc/profile.d/00_bannarr.sh` on any box. On
   community-scripts containers it switches off `00_lxc-details.sh` by renaming it, never by
   editing it.
-- **Community-scripts title and credit.** On first run, Bannarr reads the original banner's
-  title (such as "Plex LXC Container") and its community-scripts credit line, and asks whether
-  to keep each one. It also offers to hide the plain title-and-OS copy that community-scripts
-  writes to `/etc/motd`, using the reversible quiet mode.
+- **Banner title.** A title line under the art with its own color, editable from the main
+  menu, with the current title filled in for editing.
+- **Community-scripts detection.** On first run, Bannarr says it detected a community-scripts
+  container and shows the original banner's Banner Title (such as "Plex LXC Container") and
+  Credits in a checklist, both kept unless unticked. It also offers to hide the plain
+  title-and-OS copy that community-scripts writes to `/etc/motd`, using the reversible quiet
+  mode.
 - **openSUSE support.** The installed banner is executable, because openSUSE only loads
   executable `profile.d` scripts for some shells.
 - **Saving.** Pressing **s** asks Save or Cancel. When a saved banner would be replaced, it

@@ -61,7 +61,7 @@ DIRTY=0
 QUIET_ON_SAVE=0 # set by first_run_cs; save_apply quiets other login messages once
 # Menu state: MENU holds "key|label" options, PICK the chosen key, KEY the last keypress,
 # CHECKED the checked keys of a checklist. The preview is cached by PREVIEW_SIG.
-MENU=() PICK='' KEY='' MENU_ON_MOVE='' PREVIEW_SIG='' PREVIEW_OUT='' DRAW_LINES=0
+MENU=() PICK='' KEY='' MENU_ON_MOVE='' MENU_ON_TOGGLE='' MENU_NOTE='' PREVIEW_SIG='' PREVIEW_OUT='' DRAW_LINES=0
 declare -A CHECKED=()
 ART_LINES=()
 
@@ -302,6 +302,18 @@ _bn_show() {
     done
     printf '\n'
   fi
+  # Banner title and credits sit between the art and the info items, like the
+  # community-scripts banner they can come from
+  _tl=0
+  if [ -n "${BN_TITLE:-}" ]; then
+    printf '%s%s%s%s\n' "$_ind" "$(_bn_c "${BN_C_TITLE:-bold}")" "$BN_TITLE" "$_R"
+    _tl=1
+  fi
+  if [ -n "${BN_CREDITS:-}" ] && [ "${BN_CREDITS_ON:-yes}" = yes ]; then
+    printf '%s%s%s%s\n' "$_ind" "$_CT" "$BN_CREDITS" "$_R"
+    _tl=1
+  fi
+  [ "$_tl" = 1 ] && printf '\n'
   _col=0; _inl=0
   for _k in $BN_ITEMS; do
     case "$_k" in
@@ -372,19 +384,20 @@ remove_text() {
 }
 
 # Populate the BN_* settings with the out-of-the-box banner. On community-scripts boxes the
-# original banner's title and credit lines come first, as static text; first_run_cs then asks
+# original banner's title and credits become BN_TITLE and BN_CREDITS; first_run_cs then asks
 # whether to keep them.
 set_defaults() {
-  local v i cs_items=''
-  local -a cs_lines=()
+  local v line
   for v in $(compgen -v BN_); do unset "$v"; done
-  is_cs_box && mapfile -t cs_lines < <(cs_banner_lines)
-  for i in "${!cs_lines[@]}"; do
-    printf -v "BN_TEXT_$((i + 1))" '%s' "${cs_lines[i]}"
-    [[ ${cs_lines[i]} == *"Provided by:"* ]] || printf -v "BN_TC_$((i + 1))" '%s' bold
-    cs_items+="text$((i + 1)) "
-  done
-  BN_ITEMS="${cs_items}os hostname ip uptime cpu memory disk"
+  # Banner title and credits: taken from the community-scripts banner when there is one,
+  # otherwise none (the title can be typed in from the main menu at any time)
+  BN_TITLE='' BN_C_TITLE=bold BN_CREDITS='' BN_CREDITS_ON=yes
+  if is_cs_box; then
+    while IFS= read -r line; do
+      if [[ $line == *"Provided by:"* ]]; then BN_CREDITS=$line; else BN_TITLE=$line; fi
+    done < <(cs_banner_lines)
+  fi
+  BN_ITEMS="os hostname ip uptime cpu memory disk"
   BN_LAYOUT=list BN_INDENT=2 BN_LABEL_W=10 BN_VALUE_W=26 BN_SEP=': '
   BN_BAR=yes BN_BAR_W=10 BN_BAR_FULL='█' BN_BAR_EMPTY='·' BN_THRESH=yes
   BN_C_LABEL=yellow BN_C_VALUE=bgreen BN_C_SEP=gray BN_C_TEXT=gray BN_C_ICON=cyan
@@ -789,10 +802,16 @@ menu_pick() {
 # Arrow-key checklist under the live preview. Options are MENU entries "key|label"; CHECKED is
 # an associative array of checked keys, edited in place. ↑/↓ move, Space checks or unchecks,
 # a checks or unchecks all, Enter confirms (returns 0), Esc cancels (returns 1). $1 = heading.
+# MENU_NOTE, if set, is printed under the heading. If MENU_ON_TOGGLE names a function, it is
+# called after every change so the preview can follow the checkboxes.
 menu_check() {
   local title=$1 cur=0 top=0 i n=${#MENU[@]} rows k box all
   while true; do
     draw "$title"
+    if [[ -n ${MENU_NOTE:-} ]]; then
+      printf '  %s\n\n' "$MENU_NOTE"
+      DRAW_LINES=$((DRAW_LINES + 2))
+    fi
     rows=$(menu_rows 3)
     ((cur < top)) && top=$cur
     ((cur >= top + rows)) && top=$((cur - rows + 1))
@@ -814,6 +833,7 @@ menu_check() {
       space)
         k=${MENU[cur]%%|*}
         if [[ -n ${CHECKED[$k]+x} ]]; then unset "CHECKED[$k]"; else CHECKED[$k]=1; fi
+        [[ -n ${MENU_ON_TOGGLE:-} ]] && "$MENU_ON_TOGGLE"
         ;;
       a | A)
         all=1
@@ -821,6 +841,7 @@ menu_check() {
         for i in "${!MENU[@]}"; do
           if ((all)); then unset "CHECKED[${MENU[i]%%|*}]"; else CHECKED[${MENU[i]%%|*}]=1; fi
         done
+        [[ -n ${MENU_ON_TOGGLE:-} ]] && "$MENU_ON_TOGGLE"
         ;;
       enter)
         echo
@@ -1260,25 +1281,27 @@ style_menu() {
   done
 }
 
-# Global colors submenu (art, labels, values, separator, static text, icons).
+# Global colors submenu (art, title, labels, values, separator, static text and credits, icons).
 colors_menu() {
   local last=''
   while true; do
     MENU=("1|1) Art           $(grad_swatch "$BN_ART_COLOR") $BN_ART_COLOR"
-      "2|2) Labels        $(swatch "$BN_C_LABEL") $BN_C_LABEL"
-      "3|3) Values        $(swatch "$BN_C_VALUE") $BN_C_VALUE"
-      "4|4) Separator     $(swatch "$BN_C_SEP") $BN_C_SEP"
-      "5|5) Static text   $(swatch "$BN_C_TEXT") $BN_C_TEXT"
-      "6|6) Icons         $(swatch "${BN_C_ICON:-}") ${BN_C_ICON:-}")
+      "2|2) Banner title  $(swatch "${BN_C_TITLE:-}") ${BN_C_TITLE:-}"
+      "3|3) Labels        $(swatch "$BN_C_LABEL") $BN_C_LABEL"
+      "4|4) Values        $(swatch "$BN_C_VALUE") $BN_C_VALUE"
+      "5|5) Separator     $(swatch "$BN_C_SEP") $BN_C_SEP"
+      "6|6) Text, credits $(swatch "$BN_C_TEXT") $BN_C_TEXT"
+      "7|7) Icons         $(swatch "${BN_C_ICON:-}") ${BN_C_ICON:-}")
     menu_pick "Colors (per-item colors: Info items, c)" "$last"
     last=$PICK
     case $PICK in
       1) pick_color BN_ART_COLOR grad ;;
-      2) pick_color BN_C_LABEL ;;
-      3) pick_color BN_C_VALUE ;;
-      4) pick_color BN_C_SEP ;;
-      5) pick_color BN_C_TEXT ;;
-      6) pick_color BN_C_ICON ;;
+      2) pick_color BN_C_TITLE ;;
+      3) pick_color BN_C_LABEL ;;
+      4) pick_color BN_C_VALUE ;;
+      5) pick_color BN_C_SEP ;;
+      6) pick_color BN_C_TEXT ;;
+      7) pick_color BN_C_ICON ;;
       '') return ;;
     esac
   done
@@ -1591,22 +1614,52 @@ restore_menu() {
   done
 }
 
+# Banner title submenu: edit the title (the field starts with the current one), color it,
+# remove it, and show or hide the community-scripts credits when this box has them.
+title_menu() {
+  local t last=''
+  while true; do
+    MENU=("1|1) Edit title: ${BN_TITLE:-(none)}"
+      "2|2) Title color: $(swatch "${BN_C_TITLE:-}") ${BN_C_TITLE:-}"
+      "3|3) Remove title")
+    [[ -n ${BN_CREDITS:-} ]] && MENU+=("4|4) Credits: $([[ ${BN_CREDITS_ON:-yes} == yes ]] && echo shown || echo hidden)")
+    menu_pick "Banner title - shown under the art" "$last"
+    last=$PICK
+    case $PICK in
+      1)
+        read -e -r -i "${BN_TITLE:-}" -p "  Title: " t
+        BN_TITLE=$t
+        DIRTY=1
+        ;;
+      2) pick_color BN_C_TITLE ;;
+      3) BN_TITLE='' DIRTY=1 ;;
+      4)
+        if [[ ${BN_CREDITS_ON:-yes} == yes ]]; then BN_CREDITS_ON=no; else BN_CREDITS_ON=yes; fi
+        DIRTY=1
+        ;;
+      '') return ;;
+    esac
+  done
+}
+
 # Top-level menu loop.
 main_menu() {
   local r last=''
   while true; do
-    MENU=("1|1) Banner art" "2|2) Info items" "3|3) Static text" "4|4) Layout & style"
-      "5|5) Colors" "6|6) Other login messages: $(is_quiet && echo quiet || echo shown)"
+    MENU=("1|1) Banner art" "2|2) Banner title: ${BN_TITLE:-(none)}" "3|3) Info items"
+      "4|4) Static text" "5|5) Layout & style" "6|6) Colors"
+      "7|7) Other login messages: $(is_quiet && echo quiet || echo shown)"
       "s|s) Save" "r|r) Restore" "q|q) Quit")
     menu_pick "Main menu" "$last"
     last=$PICK
     case $PICK in
       1) art_menu ;;
-      2) items_menu ;;
-      3) text_menu ;;
-      4) style_menu ;;
-      5) colors_menu ;;
-      6) motd_menu ;;
+      2) title_menu ;;
+      3) items_menu ;;
+      4) text_menu ;;
+      5) style_menu ;;
+      6) colors_menu ;;
+      7) motd_menu ;;
       s) save_menu ;;
       r) restore_menu ;;
       q | '')
@@ -1649,32 +1702,47 @@ need_root() {
   fi
 }
 
-# First run on a community-scripts container (no saved design yet): set_defaults has put the
-# original banner's title and credit lines at the top of the design, and the preview shows
-# them. Ask whether to keep each one; both default to yes.
+# First run on a community-scripts container (no saved design yet). set_defaults has taken the
+# original banner's Banner Title ("<App> LXC Container") and Credits ("Provided by:
+# community-scripts ORG ...") into BN_TITLE and BN_CREDITS. Show both in a checklist, checked
+# (kept); unchecking removes one, and the preview follows. Then ask whether to also hide the
+# plain copy of the title and OS that community-scripts writes to /etc/motd.
 first_run_cs() {
-  local n var r
   [[ -f $CONF_FILE ]] && return 0
   is_cs_box || return 0
-  draw "This container was set up by community-scripts"
-  echo "  Its original banner has these lines. You can keep them in your new banner."
-  echo
-  for n in $(text_ids); do
-    var="BN_TEXT_$n"
-    if [[ ${!var} == *"Provided by:"* ]]; then
-      read -rp "  Keep the community-scripts credit line? [Y/n]: " r
-    else
-      read -rp "  Keep the title \"${!var}\"? [Y/n]: " r
-    fi
-    [[ $r =~ ^[nN] ]] && remove_text "$n"
-  done
+  _FR_TITLE=$BN_TITLE
+  MENU=()
+  declare -gA CHECKED=()
+  if [[ -n $BN_TITLE ]]; then
+    MENU+=("title|Banner Title   $BN_TITLE")
+    CHECKED[title]=1
+  fi
+  if [[ -n $BN_CREDITS ]]; then
+    MENU+=("credits|Credits        $BN_CREDITS")
+    CHECKED[credits]=1
+  fi
+  if ((${#MENU[@]})); then
+    MENU_NOTE="Its banner has these parts. Uncheck any you want to remove (you can change them later in the menu)."
+    MENU_ON_TOGGLE=_first_run_toggle
+    menu_check "community-scripts container detected" || { CHECKED[title]=1 CHECKED[credits]=1; }
+    MENU_NOTE='' MENU_ON_TOGGLE=''
+    _first_run_toggle
+  fi
   # community-scripts also writes a plain copy of the title and OS to /etc/motd, which login
   # prints above any profile.d banner. Offer to hide it with the usual, exactly reversible
   # quiet mode, applied on save like every other change.
   if [[ -f $MOTD_FILE ]] && grep -q 'LXC Container' "$MOTD_FILE" && ! is_quiet; then
-    read -rp "  Also hide the plain copy of the title and OS it prints above the banner? [Y/n]: " r
-    [[ $r =~ ^[nN] ]] || QUIET_ON_SAVE=1
+    MENU=("h|Hide it" "k|Keep it")
+    menu_pick "Also hide the plain copy of the title and OS that community-scripts prints above the banner?"
+    [[ $PICK == h ]] && QUIET_ON_SAVE=1
   fi
+  return 0
+}
+
+# MENU_ON_TOGGLE hook for first_run_cs: apply the checkboxes to the design.
+_first_run_toggle() {
+  if [[ -n ${CHECKED[title]+x} ]]; then BN_TITLE=$_FR_TITLE; else BN_TITLE=''; fi
+  if [[ -n ${CHECKED[credits]+x} ]]; then BN_CREDITS_ON=yes; else BN_CREDITS_ON=no; fi
 }
 
 # Parse arguments, then start the interactive editor.

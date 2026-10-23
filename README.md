@@ -71,6 +71,9 @@ live preview and an undo button.
 - **Usage bars.** CPU, memory and disk can show a bar that turns from green to yellow to red as
   they fill up. Turn the bars on or off for all of them, or one at a time.
 - **Icons.** Simple symbols or emoji, both of which work in any terminal.
+- **Banner title.** A title line under the art, such as "Plex LXC Container", with its own
+  color. On community-scripts containers it starts as their title, and you can edit it any
+  time.
 - **Your own text.** Add lines like a welcome message or a warning anywhere in the banner.
 - **Layouts.** One detail per line, two columns, or everything on a single line.
 - **Live preview.** See exactly what your login will look like, with real values from the
@@ -131,11 +134,12 @@ Your new banner appears the next time you log in.
 | Key | What it opens |
 | :-: | ------------- |
 | **1** | Banner art: choose, generate, paste, resize or color the ASCII art |
-| **2** | Info items: choose which system details to show, and how, including each one's bar |
-| **3** | Static text: add your own lines |
-| **4** | Layout & style: layout, spacing, usage bars and icons |
-| **5** | Colors |
-| **6** | Other login messages: hide or bring back the extra messages some systems show |
+| **2** | Banner title: the line under the art, such as "Plex LXC Container". Edit, recolor or remove it, and show or hide the Credits |
+| **3** | Info items: choose which system details to show, and how, including each one's bar |
+| **4** | Static text: add your own lines |
+| **5** | Layout & style: layout, spacing, usage bars and icons |
+| **6** | Colors |
+| **7** | Other login messages: hide or bring back the extra messages some systems show |
 | **s** | Save or cancel your changes, with the option to back up the banner they replace |
 | **r** | Restore: bring back your backup, go back to the original banner, or uninstall |
 
@@ -169,10 +173,14 @@ You can also skip the menus and do common jobs directly:
 ### On community-scripts containers
 
 Containers made with community-scripts come with their own banner:
-- **First run:** Bannarr finds that banner's title (such as "Plex LXC Container") and its
-  community-scripts credit line, and asks whether to keep each one in your new banner. It
-  also offers to hide the plain copy of the title and OS these containers print above the
-  banner.
+- **First run:** Bannarr says it detected a community-scripts container and lists the two
+  parts of its banner, both ticked:
+  - **Banner Title**, such as "Plex LXC Container".
+  - **Credits**, "Provided by: community-scripts ORG".
+
+  Untick either to remove it, and the preview updates as you go. Both can be changed later
+  under **2** (Banner title). Bannarr then asks whether to hide the plain copy of the title
+  and OS that these containers print above the banner.
 - **Saving:** Bannarr switches the original banner off so you don't see two, without deleting
   or changing it.
 - **Going back** to the original (**r** in the menu, or `--revert`) switches it on again.
