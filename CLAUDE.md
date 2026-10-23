@@ -56,4 +56,6 @@ language for non-developers.
 - **The README stays user-facing.** Technical detail goes in `docs/DEVELOPMENT.md`.
 - **Record user-visible changes** under `[Unreleased]` in `CHANGELOG.md`.
 - **Never commit font files.** The logo font, Null Pointer, is used only as outlines.
+- **Never source, eval or run anything from a share code** (`--import`). Parse it line by
+  line, and extend `valid_setting` and `valid_design` whenever a new `BN_*` setting is added.
 - **LF line endings only**, enforced by `.gitattributes`.

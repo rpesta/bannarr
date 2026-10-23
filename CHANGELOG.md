@@ -45,6 +45,12 @@ special handling for containers made with community-scripts.
   mode.
 - **openSUSE support.** The installed banner is executable, because openSUSE only loads
   executable `profile.d` scripts for some shells.
+- **Copy to other servers.** Main menu **c** and `--export` produce a one-line command with a
+  share code that recreates the design on another server. `--import` applies a share code
+  without questions, or menu **c** imports one with a preview first.
+  - **Adapts to each server:** hostname art, the community-scripts title and credits, and
+    mounts.
+  - **Safe:** codes are parsed and checked, never run.
 - **Saving.** Pressing **s** asks Save or Cancel. When a saved banner would be replaced, it
   offers to back it up first, keeping exactly one backup. Bannarr then prints where the backup
   went and the command that undoes the save. `--restore` and the Restore menu bring the backup

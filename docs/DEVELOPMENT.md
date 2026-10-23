@@ -95,6 +95,7 @@ shellcheck -s sh /tmp/bn/etc/profile.d/00_bannarr.sh  # if shellcheck is install
 | `/etc/bannarr/bannarr.conf` | Saved settings (`BN_*` assignments, mode 600) |
 | `/etc/bannarr/banner.txt` | Saved ASCII art, one line per line |
 | `/etc/bannarr/backup/` | The one backup (`bannarr.conf` + `banner.txt`): the design from before the last save, made only when the user says yes |
+| `/etc/bannarr/share-command.txt` | The last share command shown by **c → 1**, for easy copying |
 | `/etc/motd.bannarr-disabled` | `/etc/motd` while login messages are quiet |
 | `/etc/bannarr/quiet/` | Record of quieted login messages: `enabled` marker, `update-motd.d.list` (original modes), `motd.d/` (moved entries) |
 
@@ -235,6 +236,7 @@ All settings live in `bannarr.conf` and are embedded in the profile script.
 | `revert_default`, `uninstall`, `banner_status` | Go back to the default login / remove Bannarr / status line |
 | `save_menu`, `ask_backup` | Save or Cancel, then offer the backup; print where it went and how to undo |
 | `has_backup`, `make_backup`, `restore_backup`, `run_cmd` | The single backup slot, and the one-line command shown in undo hints (`RUN_URL`) |
+| `design_payload`, `design_code`, `share_command`, `import_design`, `valid_setting`, `valid_design`, `copy_menu` | Copying a design to other servers (see [Share codes](#share-codes)) |
 | `draw`, `rule`, `pause`, `print_logo`, `logo_fits` | Screen redraw with wordmark and (cached) live preview |
 | `read_key`, `menu_pick`, `menu_check`, `menu_rows`, `_menu_step`, `toggle_item` | Keyboard menus: arrow keys, Space to check, Enter, Esc; scrolling to fit under the preview |
 | `_pick_color_preview`, `_generate_preview` | `MENU_ON_MOVE` hooks that preview the highlighted color or font |
@@ -295,6 +297,45 @@ BANNARR_ETC_DIR=/tmp/bn/etc bash -c '. /tmp/bn_lib.sh; load_state; draw x >/dev/
 
 Git Bash on Windows can run most of this, but it reports any file that starts with `#!` as
 executable whatever its mode, so test the `update-motd.d` handling on real Linux.
+
+## Share codes
+
+A share code copies a design to another server: `bannarr1:` plus the base64 of the
+gzip-compressed `design_payload`. It's `bannarr0:` and plain base64 when gzip is missing;
+`base64` and `gzip` ship with coreutils and busybox. The payload is plain text:
+
+```
+# Bannarr design
+title=auto          # the title is this box's community-scripts title: use the target's own
+quiet=yes           # other login messages are quiet here: quiet them there too
+BN_LAYOUT='columns' # every BN_* setting, in write_conf's quoting...
+...                 # ...except BN_CREDITS, and BN_TITLE when title=auto
+__ART__
+<art lines>         # only for custom art; hostname and text art are redrawn on the target
+```
+
+**Importing is safe by construction.** `import_design` never sources, evals or runs any part
+of a code:
+1. **Format check.** Every line must be a note it knows, `__ART__`, or
+   `BN_NAME='value'` in write_conf's quoting, where `valid_setting` accepts `BN_NAME`
+   (fixed names, plus per-item and per-text names with valid keys).
+2. **Assignment.** Values are unescaped and set with `printf -v`.
+3. **Value check.** `valid_design` checks everything the renderer uses in `eval`, `printf`
+   formats or `case`:
+   - item keys, in `BN_ITEMS`,
+   - numbers,
+   - choices (layout, icons, art source and size, yes/no),
+   - colors.
+
+   Free text (titles, labels, static text, separator, bar characters, art) is only ever
+   printed, and `write_conf` quotes it.
+4. **Failure.** If any step fails, nothing changes.
+
+**Adapting to the target:**
+- `BN_TITLE` becomes the target's community-scripts title when `title=auto`.
+- `BN_CREDITS` always comes from the target, so it's empty on a non-community-scripts box.
+- `BN_MOUNTS` keeps only mount points that exist there.
+- `quiet=yes` sets `QUIET_ON_SAVE`.
 
 ## Logo and wordmark
 

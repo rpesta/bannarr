@@ -79,6 +79,9 @@ live preview and an undo button.
 - **Live preview.** See exactly what your login will look like, with real values from the
   machine, while you edit.
 - **Safe to try.** Your original banner is never deleted, and one command brings it back.
+- **Copy your design to other servers.** Happy with a banner? Bannarr gives you one command to
+  paste on any other server to get the same design there. Hostname art, the community-scripts
+  title and credits, and disk mounts adapt to each server automatically.
 - **A backup when you want one.** When you save over a banner, Bannarr asks whether to back up
   the old one first, then tells you where it went and the one command that brings it back.
 - **A clean login** (optional). Hide the other messages some systems show at login, such as
@@ -140,6 +143,7 @@ Your new banner appears the next time you log in.
 | **5** | Layout & style: layout, spacing, usage bars and icons |
 | **6** | Colors |
 | **7** | Other login messages: hide or bring back the extra messages some systems show |
+| **c** | Copy to other servers: show the command that recreates this design elsewhere, or import one |
 | **s** | Save or cancel your changes, with the option to back up the banner they replace |
 | **r** | Restore: bring back your backup, go back to the original banner, or uninstall |
 
@@ -164,6 +168,8 @@ You can also skip the menus and do common jobs directly:
 | `--preview` | Show your saved banner |
 | `--apply` | Install your saved banner again, for example after renaming the box |
 | `--restore` | Bring back the banner you backed up when you last saved |
+| `--export` | Print the command that copies your saved design to another server |
+| `--import CODE` | Apply a design copied from another server (the command `--export` prints does this) |
 | `--quiet-motd` | Hide the other login messages |
 | `--restore-motd` | Bring the other login messages back |
 | `--revert` | Turn Bannarr off and bring back the original login. Your design is kept |
@@ -185,11 +191,35 @@ Containers made with community-scripts come with their own banner:
   or changing it.
 - **Going back** to the original (**r** in the menu, or `--revert`) switches it on again.
 
+### Copying a design to other servers
+
+Press **c**, then choose the first option. Bannarr shows a single command and saves a copy
+in `/etc/bannarr/share-command.txt`. Run it as root on each server that should get the same
+design:
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/rpesta/bannarr/main/bannarr.sh)" -- --import 'bannarr1:H4sIAAAA…'
+```
+
+- **No questions asked:** it applies the design straight away and prints the command to undo
+  it, so it suits setting up several servers in a row.
+- **Adapts to each server:**
+  - **Hostname art** shows that server's name.
+  - **On community-scripts containers,** the banner title and credits are that container's
+    own.
+  - **Disks** that server doesn't have are left out.
+- **Preview first:** to look at a design before using it, open Bannarr on the other server,
+  press **c**, and paste the command or just the code.
+- **Safe to paste:** a share code is only text. Nothing in it is ever run, and Bannarr rejects
+  any code that isn't a design it could have made itself.
+
 ## Privacy
 
 Bannarr has no server, no analytics and no tracking. Everything happens on your machine, and
 your designs are stored there. The only time it goes online is to download itself from GitHub
-when you run the install command. It never installs anything.
+when you run the install command. It never installs anything. A share code holds your design
+settings and nothing else, and it's only ever in the command you copy. Nothing is uploaded
+anywhere.
 
 ## Limitations
 

@@ -1528,6 +1528,192 @@ restore_backup() {
   save_apply
 }
 
+# Print the design in the editor as plain text for sharing: "key=value" notes, the BN_*
+# settings, then the art after an "__ART__" line. Machine-specific parts stay behind so they
+# adapt on the other server: the credits text (always read from that server's banner), the
+# title when it is just this box's community-scripts title ("title=auto"), and art drawn from
+# the hostname or a text (redrawn there). "quiet=yes" carries over a quiet login.
+design_payload() {
+  local v cs_title=''
+  is_cs_box && cs_title=$(cs_banner_lines | grep -v 'Provided by:' | head -n 1)
+  echo "# Bannarr design"
+  [[ -n $cs_title && ${BN_TITLE:-} == "$cs_title" ]] && echo "title=auto"
+  is_quiet && echo "quiet=yes"
+  for v in $(compgen -v BN_); do
+    [[ $v == BN_CREDITS ]] && continue
+    [[ $v == BN_TITLE && -n $cs_title && ${BN_TITLE:-} == "$cs_title" ]] && continue
+    printf '%s=%s\n' "$v" "$(sq "${!v}")"
+  done
+  echo "__ART__"
+  if [[ ${BN_ART_SRC:-} == custom ]] && ((${#ART_LINES[@]})); then printf '%s\n' "${ART_LINES[@]}"; fi
+}
+
+# Print the share code for the design in the editor: "bannarr1:" and the gzip-compressed,
+# base64-encoded design_payload ("bannarr0:" and plain base64 if gzip is missing).
+design_code() {
+  if command -v gzip >/dev/null; then
+    printf 'bannarr1:%s' "$(design_payload | gzip -9c | base64 | tr -d '\n')"
+  else
+    printf 'bannarr0:%s' "$(design_payload | base64 | tr -d '\n')"
+  fi
+}
+
+# Print the one-line command that copies the design in the editor to another server.
+share_command() { run_cmd --import "'$(design_code)'"; }
+
+# Load share code $1 into the editor, without saving. Nothing in the code is ever run: each
+# line must be a known BN_* setting in the quoted form write_conf produces, or one of the
+# notes design_payload writes, and every value is checked by valid_design. Then the parts
+# that belong to this machine are filled in: its own community-scripts title and credits,
+# and only those mounts that exist here. Returns 1, with the editor's design untouched, if
+# the code is damaged or not accepted.
+import_design() {
+  local code=${1:-} raw line name val in_art=0 title_auto=no quiet=no esc="'\\''" q="'" m keep=''
+  local cs_title cs_credits
+  local -a art=()
+  case $code in
+    bannarr1:*) raw=$(printf '%s' "${code#bannarr1:}" | base64 -d 2>/dev/null | gzip -dc 2>/dev/null) ;;
+    bannarr0:*) raw=$(printf '%s' "${code#bannarr0:}" | base64 -d 2>/dev/null) ;;
+  esac
+  if [[ $raw != "# Bannarr design"* ]]; then
+    msg_error "That isn't a complete Bannarr share code - copy the whole command again"
+    return 1
+  fi
+  # Check every line first, so a bad code changes nothing
+  while IFS= read -r line; do
+    ((in_art)) && continue
+    case $line in
+      __ART__) in_art=1 ;;
+      '#'* | '' | title=auto | quiet=yes) ;;
+      *)
+        if [[ ! $line =~ ^(BN_[A-Za-z0-9_]+)=\'(.*)\'$ ]] || ! valid_setting "${BASH_REMATCH[1]}"; then
+          msg_error "That share code contains something Bannarr doesn't accept - it was not imported"
+          return 1
+        fi
+        ;;
+    esac
+  done <<<"$raw"
+  set_defaults
+  cs_title=$BN_TITLE cs_credits=$BN_CREDITS
+  in_art=0
+  while IFS= read -r line; do
+    if ((in_art)); then
+      art+=("${line//__BANNARR_ART__/}")
+      continue
+    fi
+    case $line in
+      __ART__) in_art=1 ;;
+      title=auto) title_auto=yes ;;
+      quiet=yes) quiet=yes ;;
+      BN_*)
+        [[ $line =~ ^(BN_[A-Za-z0-9_]+)=\'(.*)\'$ ]]
+        name=${BASH_REMATCH[1]} val=${BASH_REMATCH[2]}
+        printf -v "$name" '%s' "${val//"$esc"/"$q"}"
+        ;;
+    esac
+  done <<<"$raw"
+  if ! valid_design; then
+    load_state
+    msg_error "That share code has settings Bannarr doesn't accept - it was not imported"
+    return 1
+  fi
+  [[ $title_auto == yes ]] && BN_TITLE=$cs_title
+  BN_CREDITS=$cs_credits
+  if [[ -n ${BN_MOUNTS:-} ]]; then
+    while IFS= read -r m; do [[ -d $m ]] && keep+="${keep:+|}$m"; done < <(tr '|' '\n' <<<"$BN_MOUNTS")
+    BN_MOUNTS=$keep
+  fi
+  ART_LINES=()
+  case ${BN_ART_SRC:-hostname} in
+    hostname) preset_art hostname ;;
+    text) block_text "${BN_ART_TEXT:-$(hn)}" ;;
+    *)
+      ART_LINES=("${art[@]}")
+      trim_art
+      ;;
+  esac
+  [[ $quiet == yes ]] && ! is_quiet && QUIET_ON_SAVE=1
+  DIRTY=1
+}
+
+# True when $1 is a setting name a share code may contain.
+valid_setting() {
+  local key
+  case $1 in
+    BN_ITEMS | BN_LAYOUT | BN_INDENT | BN_LABEL_W | BN_VALUE_W | BN_SEP | BN_BAR | BN_BAR_W | \
+      BN_BAR_FULL | BN_BAR_EMPTY | BN_THRESH | BN_ICONS | BN_MOUNTS | BN_ART_COLOR | BN_ART_SRC | \
+      BN_ART_TEXT | BN_ART_SIZE | BN_TITLE | BN_C_TITLE | BN_CREDITS_ON | BN_C_LABEL | BN_C_VALUE | \
+      BN_C_SEP | BN_C_TEXT | BN_C_ICON) return 0 ;;
+    BN_TEXT_* | BN_TC_*) [[ ${1##*_} =~ ^[0-9]+$ ]] ;;
+    BN_L_* | BN_VC_* | BN_I_* | BN_B_*)
+      key=${1#BN_*_}
+      [[ " ${ALL_ITEMS[*]} " == *" $key "* ]]
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+# True when the settings in the editor are all values Bannarr itself could have made. Item
+# keys, numbers, choices and colors are checked, because the banner's renderer uses them in
+# eval, printf formats and case lists; free text (titles, labels, art) is only ever printed.
+valid_design() {
+  local k v
+  for k in $BN_ITEMS; do
+    [[ " ${ALL_ITEMS[*]} " == *" $k "* || $k =~ ^text[0-9]+$ ]] || return 1
+  done
+  for v in BN_INDENT BN_LABEL_W BN_VALUE_W BN_BAR_W; do [[ ${!v} =~ ^[0-9]{1,3}$ ]] || return 1; done
+  [[ $BN_ART_SIZE =~ ^(auto|[123])$ && $BN_LAYOUT =~ ^(list|columns|inline)$ ]] || return 1
+  [[ $BN_ICONS =~ ^(off|unicode|emoji)$ && $BN_ART_SRC =~ ^(hostname|text|custom)$ ]] || return 1
+  for v in BN_BAR BN_THRESH BN_CREDITS_ON $(compgen -v BN_B_); do [[ ${!v} =~ ^(yes|no)$ ]] || return 1; done
+  for v in BN_ART_COLOR $(compgen -v BN_C_) $(compgen -v BN_VC_) $(compgen -v BN_TC_); do
+    [[ ${!v} =~ ^[a-z0-9\ ]*$ ]] || return 1
+  done
+}
+
+# Main menu "c": show the command that copies this design to other servers, or import one.
+copy_menu() {
+  local code cmd
+  while true; do
+    MENU=("1|1) Show the command that copies this design to another server"
+      "2|2) Import a design from another server")
+    menu_pick "Copy to other servers"
+    case $PICK in
+      1)
+        cmd=$(share_command)
+        mkdir -p "$CONF_DIR"
+        printf '%s\n' "$cmd" >"$CONF_DIR/share-command.txt"
+        draw "Copy this design to another server"
+        ((DIRTY)) && printf '  %sIncludes your unsaved changes.%s\n' "$YW" "$CL"
+        printf '  Run this as root on the other server (it is also in %s):\n\n' "$CONF_DIR/share-command.txt"
+        printf '%s\n\n' "$cmd"
+        printf '  Hostname art, the community-scripts title and credits, and mounts adapt to that server.\n'
+        pause
+        ;;
+      2)
+        draw "Import a design"
+        read -rp "  Paste the share code (or the whole command): " code
+        code=${code#*--import }
+        code=${code//\'/}
+        code=${code//[[:space:]]/}
+        import_design "$code" || { pause; continue; }
+        MENU=("s|Save it as your banner" "c|Cancel")
+        menu_pick "Previewing the imported design"
+        if [[ $PICK == s ]]; then
+          ask_backup
+          save_apply
+        else
+          load_state
+          DIRTY=0
+          QUIET_ON_SAVE=0
+          msg_warn "Not imported - your banner is unchanged"
+        fi
+        pause
+        ;;
+      '') return ;;
+    esac
+  done
+}
+
 # Undo everything Bannarr changed on the system: remove its banner, bring back the
 # community-scripts banner on community-scripts boxes, and show other login messages again
 # if they were quieted. Settings and the backup are kept so --apply can turn it all back on.
@@ -1649,7 +1835,7 @@ main_menu() {
     MENU=("1|1) Banner art" "2|2) Banner title: ${BN_TITLE:-(none)}" "3|3) Info items"
       "4|4) Static text" "5|5) Layout & style" "6|6) Colors"
       "7|7) Other login messages: $(is_quiet && echo quiet || echo shown)"
-      "s|s) Save" "r|r) Restore" "q|q) Quit")
+      "c|c) Copy to other servers" "s|s) Save" "r|r) Restore" "q|q) Quit")
     menu_pick "Main menu" "$last"
     last=$PICK
     case $PICK in
@@ -1662,6 +1848,7 @@ main_menu() {
       7) motd_menu ;;
       s) save_menu ;;
       r) restore_menu ;;
+      c) copy_menu ;;
       q | '')
         if ((DIRTY)); then
           read -rp "  Discard unsaved changes? [y/N]: " r
@@ -1685,6 +1872,8 @@ Bannarr - customise the login banner on any Linux box ($BANNER_FILE)
   bannarr.sh --apply            build and install the banner from saved settings
                                 (also re-disables a recreated community-scripts banner)
   bannarr.sh --restore          bring back the banner you backed up when you last saved
+  bannarr.sh --export           print the command that copies your saved design to another server
+  bannarr.sh --import CODE      apply a design copied from another server (from --export)
   bannarr.sh --quiet-motd       quiet other login messages (/etc/motd, update-motd.d, motd.d)
   bannarr.sh --restore-motd     show them again, undoing exactly what --quiet-motd changed
   bannarr.sh --revert           turn Bannarr off and bring back the original banner
@@ -1752,6 +1941,8 @@ main() {
     --preview) load_state; build_profile preview >"$TMP"; sh "$TMP"; exit 0 ;;
     --apply) need_root; load_state; save_apply; exit $? ;;
     --restore) need_root; restore_backup; exit $? ;;
+    --export) load_state; share_command; echo; exit 0 ;;
+    --import) need_root; import_design "${2:-}" && save_apply; exit $? ;;
     --quiet-motd) need_root; quiet_motd; exit 0 ;;
     --restore-motd)
       need_root
