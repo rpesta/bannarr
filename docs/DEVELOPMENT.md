@@ -57,8 +57,18 @@ shellcheck -s sh /tmp/bn/etc/profile.d/00_bannarr.sh  # if shellcheck is install
      nested shells, tmux or screen. RHEL-likes source `profile.d` from `/etc/bashrc` for every
      interactive shell, so without it the banner would show each time.
    - Login never reads `/etc/bannarr/`, so the banner keeps working if that folder is deleted.
-4. **The live preview runs the real thing.** Every menu loop calls `draw`, which runs
-   `build_profile` into a temp file and executes it with `sh`.
+4. **The live preview runs the real thing.** `draw` runs `build_profile` into a temp file and
+   executes it with `sh`.
+   - **Cached:** the output is kept under a signature of all `BN_*` variables and the art,
+     and only rebuilt when that changes. So menus can redraw on every keypress without
+     re-sampling the CPU each time; values refresh when a setting changes.
+   - **Menus:** they are drawn under the preview by `menu_pick` (single choice) and
+     `menu_check` (checklist), plus the custom checklists in `items_menu` and `text_menu`.
+     `read_key` turns arrow keys and other escape sequences into names like `up` and `enter`.
+     Neither needs whiptail, which would hide the preview and isn't installed by default on
+     Alpine, Fedora or Arch.
+   - **`MENU_ON_MOVE`** lets a menu change a setting as the highlight moves (gallery, fonts,
+     colors) and put it back on Esc.
 5. **Saving is guarded.**
    - **Asking first:** in the editor, `save_menu` runs only when there are unsaved changes.
      It asks Save or Cancel, then `ask_backup` offers to copy the currently saved design into
@@ -217,7 +227,9 @@ All settings live in `bannarr.conf` and are embedded in the profile script.
 | `revert_default`, `uninstall`, `banner_status` | Go back to the default login / remove Bannarr / status line |
 | `save_menu`, `ask_backup` | Save or Cancel, then offer the backup; print where it went and how to undo |
 | `has_backup`, `make_backup`, `restore_backup`, `run_cmd` | The single backup slot, and the one-line command shown in undo hints (`RUN_URL`) |
-| `draw`, `rule`, `pause`, `print_logo`, `logo_fits` | Screen redraw with wordmark and live preview |
+| `draw`, `rule`, `pause`, `print_logo`, `logo_fits` | Screen redraw with wordmark and (cached) live preview |
+| `read_key`, `menu_pick`, `menu_check`, `menu_rows`, `_menu_step`, `toggle_item` | Keyboard menus: arrow keys, Space to check, Enter, Esc; scrolling to fit under the preview |
+| `_pick_color_preview`, `_generate_preview` | `MENU_ON_MOVE` hooks that preview the highlighted color or font |
 | `main_menu`, `art_menu`, `preset_menu`, `generate_menu`, `items_menu`, `mounts_menu`, `text_menu`, `style_menu`, `colors_menu`, `motd_menu`, `restore_menu` | Menus |
 | `pick_color`, `ask_num`, `swatch`, `grad_swatch` | Input widgets |
 | `preset_art`, `block_text`, `paste_art`, `edit_art`, `trim_art` | ASCII art sources |

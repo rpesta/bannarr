@@ -35,7 +35,8 @@ language for non-developers.
 - **State:** `set_defaults`, `load_state`, `write_conf` and `build_profile`. Settings are
   `BN_*` variables.
 - **ASCII art:** presets, the built-in 5×7 font (`FONT`, `block_text`) and figlet.
-- **TUI helpers and menus:** `draw` redraws the live preview on every loop.
+- **TUI helpers and menus:** `draw` redraws the cached live preview. `menu_pick` and
+  `menu_check` are the keyboard menus (arrows, Space, Enter, Esc), with no whiptail.
 - **System changes:** `save_apply`, `park`/`unpark`, `quiet_motd`/`unquiet_motd`, the
   single backup (`save_menu`, `ask_backup`; one slot only, never a library of designs),
   `revert_default` and `uninstall`.

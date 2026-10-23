@@ -139,8 +139,17 @@ Your new banner appears the next time you log in.
 | **s** | Save or cancel your changes, with the option to back up the banner they replace |
 | **r** | Restore: bring back your backup, go back to the original banner, or uninstall |
 
-The lists in menus **2** and **3** show the keys you can use at the bottom of the screen. Type a
-number to turn that row on or off.
+Every menu works from the keyboard, like other community-scripts menus:
+- **↑ / ↓** move the highlight.
+- **Space** checks or unchecks the highlighted row in lists like Info items and Mounts, so you
+  can tick several in a row.
+- **Enter** chooses, or finishes a list.
+- **Esc** goes back.
+- **Other keys:** each screen lists the rest at the bottom, such as `u`/`d` to reorder or
+  `c` for color. The number and letter shortcuts shown next to each option still work.
+
+While you move through the art gallery, the font list or the color picker, the live preview
+shows the highlighted choice, and Esc puts back what you had.
 
 ### Commands
 

@@ -25,6 +25,7 @@ APP_TYPE="addon"
 # always get real escape bytes. Notices use msg_warn: in community-scripts, msg_info starts a
 # progress spinner that only msg_ok stops.
 BOLD=$'\e[1m' DIM=$'\e[2m' CL=$'\e[0m' RD=$'\e[31m' GN=$'\e[32m' YW=$'\e[33m' BL=$'\e[36m'
+REV=$'\e[7m' # reverse video: the highlighted row in menus
 msg_ok() { printf ' %s✔%s %s\n' "$GN" "$CL" "$1"; }
 msg_warn() { printf ' %s!%s %s\n' "$YW" "$CL" "$1"; }
 msg_error() { printf ' %s✖%s %s\n' "$RD" "$CL" "$1" >&2; }
@@ -58,6 +59,10 @@ trap 'rm -f "$TMP" "$TMP.edit"' EXIT
 trap 'exit 130' INT TERM
 DIRTY=0
 QUIET_ON_SAVE=0 # set by first_run_cs; save_apply quiets other login messages once
+# Menu state: MENU holds "key|label" options, PICK the chosen key, KEY the last keypress,
+# CHECKED the checked keys of a checklist. The preview is cached by PREVIEW_SIG.
+MENU=() PICK='' KEY='' MENU_ON_MOVE='' PREVIEW_SIG='' PREVIEW_OUT='' DRAW_LINES=0
+declare -A CHECKED=()
 ART_LINES=()
 
 ALL_ITEMS=(hostname fqdn ip ipv6 os kernel arch uptime load cpu cpu_model cores memory swap disk mounts procs users date)
@@ -626,22 +631,197 @@ logo_fits() {
 }
 
 # Redraw the whole screen: title (the wordmark when the terminal is big enough), live preview
-# of the current in-memory settings, unsaved marker and an optional section heading $1.
-# Every menu calls this on each loop, which is what makes the preview "live".
+# of the current in-memory settings, unsaved marker and an optional heading $1. The preview is
+# rebuilt only when the settings or art changed since the last draw, so moving through a menu
+# stays instant; menus redraw on every keypress, which keeps the preview live. Sets DRAW_LINES
+# to the number of lines printed, so menus know how many rows are left for their options.
 draw() {
-  clear
+  local sig
+  sig=$(declare -p "${!BN_@}" 2>/dev/null; printf '%s\n' "${ART_LINES[@]}")
+  if [[ $sig != "$PREVIEW_SIG" ]]; then
+    build_profile >"$TMP"
+    PREVIEW_OUT=$(BANNARR_SHOWN='' sh "$TMP")
+    PREVIEW_SIG=$sig
+  fi
+  printf '\033[H\033[2J'
+  DRAW_LINES=0
   if logo_fits; then
     print_logo
+    DRAW_LINES=$((${#LOGO_LINES[@]} + 2))
   else
     printf '%s%s Bannarr %s' "$BOLD" "$(_bn_c 134)" "$CL"
   fi
   printf '%s live preview - values are read from this machine%s\n' "$DIM" "$CL"
   rule
-  build_profile >"$TMP"
-  BANNARR_SHOWN='' sh "$TMP"
+  printf '%s\n' "$PREVIEW_OUT"
   rule
-  ((DIRTY)) && printf '  %sUnsaved changes - press s in the main menu to save%s\n' "$YW" "$CL"
-  [[ -n ${1:-} ]] && printf '  %s%s%s\n\n' "$BOLD" "$1" "$CL"
+  DRAW_LINES=$((DRAW_LINES + 3 + $(printf '%s\n' "$PREVIEW_OUT" | wc -l)))
+  if ((DIRTY)); then
+    printf '  %sUnsaved changes - press s in the main menu to save%s\n' "$YW" "$CL"
+    DRAW_LINES=$((DRAW_LINES + 1))
+  fi
+  if [[ -n ${1:-} ]]; then
+    printf '  %s%s%s\n\n' "$BOLD" "$1" "$CL"
+    DRAW_LINES=$((DRAW_LINES + 2))
+  fi
+}
+
+# Read one keypress into KEY: up, down, left, right, home, end, pgup, pgdn, enter, space, esc,
+# or the character typed. Arrow and paging keys arrive as escape sequences.
+read_key() {
+  local k rest=''
+  if ! IFS= read -rsn1 k; then
+    KEY=esc
+    return
+  fi
+  case $k in
+    $'\e')
+      IFS= read -rsn2 -t 0.1 rest
+      case $rest in
+        '[A' | 'OA') KEY=up ;;
+        '[B' | 'OB') KEY=down ;;
+        '[C' | 'OC') KEY=right ;;
+        '[D' | 'OD') KEY=left ;;
+        '[H' | 'OH') KEY=home ;;
+        '[F' | 'OF') KEY=end ;;
+        '[5' | '[6')
+          IFS= read -rsn1 -t 0.1 _
+          if [[ $rest == '[5' ]]; then KEY=pgup; else KEY=pgdn; fi
+          ;;
+        *) KEY=esc ;;
+      esac
+      ;;
+    '') KEY=enter ;;
+    ' ') KEY=space ;;
+    *) KEY=$k ;;
+  esac
+}
+
+# Rows left for a menu's options under the preview, keeping $1 lines for its own footer.
+menu_rows() {
+  local rows
+  rows=$(($(tput lines 2>/dev/null || echo 24) - DRAW_LINES - $1))
+  ((rows < 4)) && rows=4
+  echo "$rows"
+}
+
+# Move the highlight in menu_pick by $1 steps, skipping headings. Works on the caller's cur
+# and n (bash functions see their caller's locals).
+_menu_step() {
+  local c=$cur s=$1 d=1
+  ((s < 0)) && d=-1 s=$((-s))
+  while ((s > 0)); do
+    c=$((c + d))
+    ((c < 0 || c >= n)) && break
+    [[ -n ${MENU[c]%%|*} ]] && cur=$c && s=$((s - 1))
+  done
+}
+
+# Arrow-key menu under the live preview, like community-scripts' whiptail menus but without
+# hiding the preview. Options are MENU entries "key|label"; an entry with an empty key is a
+# heading that can't be selected. ↑/↓ move, Enter or Space picks, typing an option's key picks
+# it directly, Esc or ← goes back. Sets PICK to the chosen key, or '' for back. $1 = heading,
+# $2 = key to start on. If MENU_ON_MOVE names a function, it is called with the highlighted key
+# whenever the highlight moves, so the preview can follow the cursor.
+menu_pick() {
+  local title=$1 cur=0 top=0 i n=${#MENU[@]} rows last=''
+  for i in "${!MENU[@]}"; do [[ -n ${2:-} && ${MENU[i]%%|*} == "$2" ]] && cur=$i && break; done
+  [[ -z ${MENU[cur]%%|*} ]] && _menu_step 1
+  while true; do
+    if [[ -n ${MENU_ON_MOVE:-} && ${MENU[cur]%%|*} != "$last" ]]; then
+      last=${MENU[cur]%%|*}
+      "$MENU_ON_MOVE" "$last"
+    fi
+    draw "$title"
+    rows=$(menu_rows 3)
+    ((cur < top)) && top=$cur
+    ((cur >= top + rows)) && top=$((cur - rows + 1))
+    for ((i = top; i < n && i < top + rows; i++)); do
+      if ((i == cur)); then
+        printf '  %s› %s %s\n' "$REV" "${MENU[i]#*|}" "$CL"
+      elif [[ -z ${MENU[i]%%|*} ]]; then
+        printf '  %s%s%s\n' "$BOLD" "${MENU[i]#*|}" "$CL"
+      else
+        printf '    %s\n' "${MENU[i]#*|}"
+      fi
+    done
+    ((n > rows)) && printf '  %s%d-%d of %d%s\n' "$DIM" $((top + 1)) "$i" "$n" "$CL"
+    printf '\n  %s↑/↓ move   Enter select   Esc back%s' "$DIM" "$CL"
+    read_key
+    for i in "${!MENU[@]}"; do
+      if [[ -n ${MENU[i]%%|*} && ${MENU[i]%%|*} == "$KEY" ]]; then
+        PICK=$KEY
+        echo
+        return 0
+      fi
+    done
+    case $KEY in
+      up) _menu_step -1 ;;
+      down) _menu_step 1 ;;
+      pgup) _menu_step "-$rows" ;;
+      pgdn) _menu_step "$rows" ;;
+      home) cur=0 && [[ -z ${MENU[0]%%|*} ]] && _menu_step 1 ;;
+      end) cur=$((n - 1)) ;;
+      enter | space | right)
+        PICK=${MENU[cur]%%|*}
+        echo
+        return 0
+        ;;
+      esc | left | b | B | q | Q)
+        PICK=''
+        echo
+        return 0
+        ;;
+    esac
+  done
+}
+
+# Arrow-key checklist under the live preview. Options are MENU entries "key|label"; CHECKED is
+# an associative array of checked keys, edited in place. ↑/↓ move, Space checks or unchecks,
+# a checks or unchecks all, Enter confirms (returns 0), Esc cancels (returns 1). $1 = heading.
+menu_check() {
+  local title=$1 cur=0 top=0 i n=${#MENU[@]} rows k box all
+  while true; do
+    draw "$title"
+    rows=$(menu_rows 3)
+    ((cur < top)) && top=$cur
+    ((cur >= top + rows)) && top=$((cur - rows + 1))
+    for ((i = top; i < n && i < top + rows; i++)); do
+      k=${MENU[i]%%|*}
+      if [[ -n ${CHECKED[$k]+x} ]]; then box='[x]'; else box='[ ]'; fi
+      if ((i == cur)); then
+        printf '  %s› %s %s %s\n' "$REV" "$box" "${MENU[i]#*|}" "$CL"
+      else
+        printf '    %s %s\n' "$box" "${MENU[i]#*|}"
+      fi
+    done
+    ((n > rows)) && printf '  %s%d-%d of %d%s\n' "$DIM" $((top + 1)) "$i" "$n" "$CL"
+    printf '\n  %s↑/↓ move   Space check   a all/none   Enter save   Esc cancel%s' "$DIM" "$CL"
+    read_key
+    case $KEY in
+      up) ((cur > 0)) && cur=$((cur - 1)) ;;
+      down) ((cur < n - 1)) && cur=$((cur + 1)) ;;
+      space)
+        k=${MENU[cur]%%|*}
+        if [[ -n ${CHECKED[$k]+x} ]]; then unset "CHECKED[$k]"; else CHECKED[$k]=1; fi
+        ;;
+      a | A)
+        all=1
+        for i in "${!MENU[@]}"; do [[ -n ${CHECKED[${MENU[i]%%|*}]+x} ]] || all=0; done
+        for i in "${!MENU[@]}"; do
+          if ((all)); then unset "CHECKED[${MENU[i]%%|*}]"; else CHECKED[${MENU[i]%%|*}]=1; fi
+        done
+        ;;
+      enter)
+        echo
+        return 0
+        ;;
+      esc | left | b | B | q | Q)
+        echo
+        return 1
+        ;;
+    esac
+  done
 }
 
 # Prompt for an integer; $1 prompt, $2 variable name, $3 min, $4 max. Leaves the variable
@@ -665,49 +845,60 @@ swatch() { printf '%s■■■%s' "$(_bn_c "$1")" "$CL"; }
 grad_swatch() { local c; for c in $1; do printf '%s■%s' "$(_bn_c "$c")" "$CL"; done; }
 
 # Color picker. $1 = variable to set; pass "grad" as $2 to also offer gradients and
-# multi-color 256 lists. Choosing "none" clears the variable.
-pick_color() { # $1 var name, $2 "grad" to offer gradients
-  local var=$1 i c r
-  local -a opts=("${COLOR_NAMES[@]}")
-  [[ ${2:-} == grad ]] && opts+=("${GRAD_NAMES[@]}")
-  draw "Pick a color for ${var#BN_} (current: ${!var:-none})"
-  for i in "${!opts[@]}"; do
-    c=${opts[i]}
-    if [[ -n ${GRADIENTS[$c]+x} ]]; then
-      printf '  %2d) %s %-9s' $((i + 1)) "$(grad_swatch "${GRADIENTS[$c]}")" "$c"
-    else
-      printf '  %2d) %s %-11s' $((i + 1)) "$(swatch "$c")" "$c"
-    fi
-    (((i + 1) % 4)) || echo
+# multi-color 256 lists. The preview follows the highlight; Esc puts the old color back.
+# Choosing "none" clears the variable.
+pick_color() {
+  local var=$1 c start='' was_set=0 orig
+  [[ -n ${!var+x} ]] && was_set=1
+  orig=${!var:-}
+  MENU=()
+  for c in "${COLOR_NAMES[@]}"; do
+    MENU+=("$c|$(swatch "$c") $c")
+    [[ $c == "${orig:-none}" ]] && start=$c
   done
-  printf '\n\n   n) 256-color number%s   Enter) cancel\n' "$([[ ${2:-} == grad ]] && echo ' (space-separated list = gradient)')"
-  read -rp "  › " r
-  case $r in
-    '') return ;;
-    n | N)
+  if [[ ${2:-} == grad ]]; then
+    MENU+=("|Gradients")
+    for c in "${GRAD_NAMES[@]}"; do
+      MENU+=("$c|$(grad_swatch "${GRADIENTS[$c]}") $c")
+      [[ ${GRADIENTS[$c]} == "$orig" ]] && start=$c
+    done
+  fi
+  MENU+=("#|# 256-color number$([[ ${2:-} == grad ]] && echo 's (a list makes a gradient)')")
+  _PC_VAR=$var
+  MENU_ON_MOVE=_pick_color_preview
+  menu_pick "Color for ${var#BN_} - the preview follows the highlight" "$start"
+  MENU_ON_MOVE=''
+  case $PICK in
+    '#')
       read -rp "  Color number(s) 0-255: " c
       if [[ ${2:-} == grad && $c =~ ^[0-9]{1,3}( [0-9]{1,3})*$ ]] || [[ $c =~ ^[0-9]{1,3}$ ]]; then
         printf -v "$var" '%s' "$c"
         DIRTY=1
+        return
       fi
       ;;
-    *)
-      if [[ $r =~ ^[0-9]+$ ]] && ((r >= 1 && r <= ${#opts[@]})); then
-        c=${opts[r - 1]}
-        [[ -n ${GRADIENTS[$c]+x} ]] && c=${GRADIENTS[$c]}
-        [[ $c == none ]] && c=''
-        printf -v "$var" '%s' "$c"
-        DIRTY=1
-      fi
+    ?*)
+      _pick_color_preview "$PICK"
+      DIRTY=1
+      return
       ;;
   esac
+  if ((was_set)); then printf -v "$var" '%s' "$orig"; else unset "$var"; fi
 }
 
-# Menus
+# MENU_ON_MOVE hook for pick_color: show color (or gradient name) $1 in the preview.
+_pick_color_preview() {
+  local c=$1
+  [[ -z $c || $c == '#' ]] && return
+  [[ -n ${GRADIENTS[$c]+x} ]] && c=${GRADIENTS[$c]}
+  [[ $c == none ]] && c=''
+  printf -v "$_PC_VAR" '%s' "$c"
+}
+
+# Banner art submenu.
 art_menu() {
-  local r size
+  local size last=''
   while true; do
-    draw "Banner art"
     art_scale
     if ((_AS == 0)); then
       size="${BN_ART_SIZE:-auto} (only block-letter art can be resized)"
@@ -716,15 +907,11 @@ art_menu() {
     else
       size="${BN_ART_SIZE}x"
     fi
-    cat <<EOF
-  1) Preset gallery              5) Remove art
-  2) Generate from text          6) Art color / gradient
-  3) Paste your own              7) Size: $size
-  4) Edit in text editor
-  b) Back
-EOF
-    read -rp "  › " r
-    case $r in
+    MENU=("1|1) Preset gallery" "2|2) Generate from text" "3|3) Paste your own"
+      "4|4) Edit in text editor" "5|5) Remove art" "6|6) Art color / gradient" "7|7) Size: $size")
+    menu_pick "Banner art" "$last"
+    last=$PICK
+    case $PICK in
       1) preset_menu ;;
       2) generate_menu ;;
       3) paste_art ;;
@@ -735,61 +922,63 @@ EOF
         case ${BN_ART_SIZE:-auto} in auto) BN_ART_SIZE=1 ;; 1) BN_ART_SIZE=2 ;; 2) BN_ART_SIZE=3 ;; *) BN_ART_SIZE=auto ;; esac
         DIRTY=1
         ;;
-      b | B | '') return ;;
+      '') return ;;
     esac
   done
 }
 
-# Preset gallery: picking a preset applies it immediately so the preview shows it.
+# Preset gallery: the preview shows each preset as the highlight moves over it; Enter keeps it,
+# Esc puts the previous art back.
 preset_menu() {
-  local r i
-  while true; do
-    draw "Preset gallery - pick one to preview it"
-    for i in "${!PRESETS[@]}"; do printf '  %d) %s\n' $((i + 1)) "${PRESETS[i]}"; done
-    echo "  b) Back"
-    read -rp "  › " r
-    [[ $r =~ ^[0-9]+$ ]] && ((r >= 1 && r <= ${#PRESETS[@]})) || return
-    preset_art "${PRESETS[r - 1]}"
-    BN_ART_SRC=${PRESETS[r - 1]}
+  local p src=$BN_ART_SRC
+  local -a art=("${ART_LINES[@]}")
+  MENU=()
+  for p in "${PRESETS[@]}"; do MENU+=("$p|$p"); done
+  MENU_ON_MOVE=preset_art
+  menu_pick "Preset gallery - the preview follows the highlight, Enter keeps it"
+  MENU_ON_MOVE=''
+  if [[ -n $PICK ]]; then
+    preset_art "$PICK"
+    BN_ART_SRC=$PICK
     [[ $BN_ART_SRC == hostname ]] || BN_ART_SRC=custom
     DIRTY=1
-  done
+  else
+    ART_LINES=("${art[@]}")
+    BN_ART_SRC=$src
+  fi
 }
 
-# Text-to-ASCII generator. Uses the built-in block font, which can be resized (art menu 7).
-# If figlet already happens to be installed its fonts are offered too; Bannarr never installs
-# anything. Loops so fonts can be compared live.
+# Text-to-ASCII generator. Uses the built-in 5x7 font, which can be resized (art menu 7). If
+# figlet already happens to be installed its fonts are offered too, with the preview following
+# the highlight; Bannarr never installs anything.
 generate_menu() {
-  local text r i fdir
-  local -a fonts=(builtin)
+  local text r fdir
   draw "Generate ASCII art from text"
   read -rp "  Text [$(hn)]: " text
   text=${text:-$(hn)}
-  if command -v figlet >/dev/null; then
-    fdir=$(figlet -I2 2>/dev/null)
-    for r in "$fdir"/*.flf; do [[ -f $r ]] && fonts+=("$(basename "$r" .flf)"); done
-  fi
   block_text "$text"
   BN_ART_SRC=text BN_ART_TEXT=$text DIRTY=1
-  ((${#fonts[@]} > 1)) || return
-  while true; do
-    draw "Pick a font - the preview updates as you go"
-    for i in "${!fonts[@]}"; do
-      printf '  %3d) %-16s' $((i + 1)) "${fonts[i]}"
-      (((i + 1) % 4)) || echo
-    done
-    printf '\n  Enter) done\n'
-    read -rp "  › " r
-    [[ $r =~ ^[0-9]+$ ]] && ((r >= 1 && r <= ${#fonts[@]})) || return
-    if ((r == 1)); then
-      block_text "$text"
-      BN_ART_SRC=text
-    else
-      mapfile -t ART_LINES < <(figlet -w "$(tput cols 2>/dev/null || echo 80)" -f "${fonts[r - 1]}" "$text")
-      trim_art
-      BN_ART_SRC=custom
-    fi
-  done
+  command -v figlet >/dev/null || return
+  fdir=$(figlet -I2 2>/dev/null)
+  MENU=("builtin|built-in 5x7 font")
+  for r in "$fdir"/*.flf; do [[ -f $r ]] && MENU+=("$(basename "$r" .flf)|$(basename "$r" .flf)"); done
+  _GEN_TEXT=$text
+  MENU_ON_MOVE=_generate_preview
+  menu_pick "Pick a font - the preview follows the highlight" builtin
+  MENU_ON_MOVE=''
+  [[ -n $PICK ]] || _generate_preview builtin
+}
+
+# MENU_ON_MOVE hook for generate_menu: draw _GEN_TEXT in font $1.
+_generate_preview() {
+  if [[ $1 == builtin ]]; then
+    block_text "$_GEN_TEXT"
+    BN_ART_SRC=text
+  else
+    mapfile -t ART_LINES < <(figlet -w "$(tput cols 2>/dev/null || echo 80)" -f "$1" "$_GEN_TEXT")
+    trim_art
+    BN_ART_SRC=custom
+  fi
 }
 
 # Read pasted art from stdin until a line containing only ".".
@@ -824,19 +1013,28 @@ edit_art() {
   BN_ART_SRC=custom DIRTY=1
 }
 
-# Info items submenu: toggle, reorder, rename, recolor and set icons per item; "m" opens
-# the mounts picker. Enabled items are listed first, in display order.
+# Info items checklist. ↑/↓ move, Space shows or hides the highlighted item, u/d move it up or
+# down, l renames, c colors, i sets its icon, g switches its usage bar, m picks which mounts the
+# mounts item shows, Enter or Esc goes back. Shown items come first, in display order.
 items_menu() {
-  local cmd n k i lbl vc bar bar_var
-  local -a items rows
+  local cur=0 top=0 i k n rows line lbl vc vc_var bar bar_var mark sel=''
+  local -a items list
   while true; do
     read -ra items <<<"$BN_ITEMS"
-    rows=()
-    for k in "${items[@]}"; do [[ $k == text[0-9]* ]] || rows+=("$k"); done
-    for k in "${ALL_ITEMS[@]}"; do [[ " $BN_ITEMS " == *" $k "* ]] || rows+=("$k"); done
+    list=()
+    for k in "${items[@]}"; do [[ $k == text[0-9]* ]] || list+=("$k"); done
+    for k in "${ALL_ITEMS[@]}"; do [[ " $BN_ITEMS " == *" $k "* ]] || list+=("$k"); done
+    n=${#list[@]}
+    if [[ -n $sel ]]; then
+      for i in "${!list[@]}"; do [[ ${list[i]} == "$sel" ]] && cur=$i; done
+      sel=''
+    fi
     draw "Info items - shown in this order"
-    for i in "${!rows[@]}"; do
-      k=${rows[i]}
+    rows=$(menu_rows 3)
+    ((cur < top)) && top=$cur
+    ((cur >= top + rows)) && top=$((cur - rows + 1))
+    for ((i = top; i < n && i < top + rows; i++)); do
+      k=${list[i]}
       _bn_label "$k"
       _bn_icon "$k"
       vc_var="BN_VC_$k"
@@ -844,36 +1042,31 @@ items_menu() {
       bar=''
       if [[ " ${BAR_ITEMS[*]} " == *" $k "* ]]; then
         bar_var="BN_B_$k"
-        if [[ ${!bar_var:-$BN_BAR} == yes ]]; then bar="bar on "; else bar="${DIM}bar off${CL}"; fi
+        if [[ ${!bar_var:-$BN_BAR} == yes ]]; then bar='bar on'; else bar='bar off'; fi
       fi
-      if [[ " $BN_ITEMS " == *" $k "* ]]; then mark="${GN}[x]${CL}"; else mark="${DIM}[ ]${CL}"; fi
-      printf '  %2d) %s %-2s %-10s %-12s %-7s %s\n' $((i + 1)) "$mark" "$_ic" "$k" "$_l" "$bar" "${vc:+$(swatch "$vc") $vc}"
+      if [[ " $BN_ITEMS " == *" $k "* ]]; then mark='[x]'; else mark='[ ]'; fi
+      printf -v line '%s %-2s %-10s %-12s %-7s' "$mark" "$_ic" "$k" "$_l" "$bar"
+      if ((i == cur)); then
+        printf '  %s› %s %s %s\n' "$REV" "$line" "$CL" "${vc:+$(swatch "$vc")}"
+      else
+        printf '    %s %s\n' "$line" "${vc:+$(swatch "$vc")}"
+      fi
     done
-    printf '\n  %s<n>%s toggle   %su/d <n>%s move   %sl <n>%s rename   %sc <n>%s color   %si <n>%s icon   %sg <n>%s bar on/off   %sm%s pick mounts (%s)   %sb%s back\n' \
-      "$BOLD" "$CL" "$BOLD" "$CL" "$BOLD" "$CL" "$BOLD" "$CL" "$BOLD" "$CL" "$BOLD" "$CL" "$BOLD" "$CL" "${BN_MOUNTS:-auto}" "$BOLD" "$CL"
-    read -rp "  › " cmd n
-    if [[ $cmd =~ ^[0-9]+$ ]]; then
-      n=$cmd cmd=t
-    fi
-    [[ $cmd == [bB] || -z $cmd ]] && return
-    [[ $cmd == [mM] ]] && { mounts_menu; continue; }
-    [[ $n =~ ^[0-9]+$ ]] && ((n >= 1 && n <= ${#rows[@]})) || continue
-    k=${rows[n - 1]}
-    case $cmd in
-      t)
-        if [[ " $BN_ITEMS " == *" $k "* ]]; then
-          items=()
-          read -ra items <<<"$BN_ITEMS"
-          BN_ITEMS=$(printf '%s\n' "${items[@]}" | grep -vx "$k" | tr '\n' ' ')
-          BN_ITEMS=${BN_ITEMS% }
-        else
-          BN_ITEMS="${BN_ITEMS:+$BN_ITEMS }$k"
-        fi
-        DIRTY=1
-        ;;
-      u | d) move_item "$k" "$cmd" ;;
+    ((n > rows)) && printf '  %s%d-%d of %d%s\n' "$DIM" $((top + 1)) "$i" "$n" "$CL"
+    printf '\n  %s↑/↓ move  Space show/hide  u/d reorder  l rename  c color  i icon  g bar  m mounts (%s)  Enter done%s' \
+      "$DIM" "${BN_MOUNTS:-auto}" "$CL"
+    read_key
+    k=${list[cur]}
+    case $KEY in
+      up) ((cur > 0)) && cur=$((cur - 1)) ;;
+      down) ((cur < n - 1)) && cur=$((cur + 1)) ;;
+      pgup) cur=$((cur > rows ? cur - rows : 0)) ;;
+      pgdn) cur=$((cur + rows < n ? cur + rows : n - 1)) ;;
+      space) toggle_item "$k" && sel=$k ;;
+      u | d) move_item "$k" "$KEY" && sel=$k ;;
       l)
         _bn_label "$k"
+        echo
         read -rp "  New label for $k [$_l] (- to reset): " lbl
         if [[ $lbl == - ]]; then unset "BN_L_$k"; elif [[ -n $lbl ]]; then printf -v "BN_L_$k" '%s' "$lbl"; fi
         DIRTY=1
@@ -881,47 +1074,54 @@ items_menu() {
       c) pick_color "BN_VC_$k" ;;
       i)
         _bn_icon "$k"
-        read -rp "  Icon for $k [${_ic:-none}] (any symbol/emoji, - to reset): " lbl
+        echo
+        read -rp "  Icon for $k [${_ic:-none}] (any symbol or emoji, - to reset): " lbl
         if [[ $lbl == - ]]; then unset "BN_I_$k"; elif [[ -n $lbl ]]; then printf -v "BN_I_$k" '%s' "$lbl"; fi
         DIRTY=1
         ;;
       g)
-        if [[ " ${BAR_ITEMS[*]} " != *" $k "* ]]; then
-          msg_error "$k has no usage bar - bars are for ${BAR_ITEMS[*]}"
-          sleep 2
-          continue
+        if [[ " ${BAR_ITEMS[*]} " == *" $k "* ]]; then
+          bar_var="BN_B_$k"
+          if [[ ${!bar_var:-$BN_BAR} == yes ]]; then printf -v "$bar_var" no; else printf -v "$bar_var" yes; fi
+          DIRTY=1
         fi
-        bar_var="BN_B_$k"
-        if [[ ${!bar_var:-$BN_BAR} == yes ]]; then printf -v "$bar_var" no; else printf -v "$bar_var" yes; fi
-        DIRTY=1
         ;;
+      m | M) mounts_menu ;;
+      enter | esc | left | b | B | q | Q) return ;;
     esac
   done
 }
 
-# Choose which mounts the "mounts" item shows, or reset to auto-detect.
+# Show item $1 if it's hidden, hide it if it's shown. Shown items are added at the end.
+toggle_item() {
+  local -a items
+  if [[ " $BN_ITEMS " == *" $1 "* ]]; then
+    read -ra items <<<"$BN_ITEMS"
+    BN_ITEMS=$(printf '%s\n' "${items[@]}" | grep -vx "$1" | tr '\n' ' ')
+    BN_ITEMS=${BN_ITEMS% }
+  else
+    BN_ITEMS="${BN_ITEMS:+$BN_ITEMS }$1"
+  fi
+  DIRTY=1
+}
+
+# Checklist of mounts for the "mounts" item. Checking every mount means "auto", which also
+# picks up mounts added later.
 mounts_menu() {
-  local r i
-  local -a all sel
+  local m sel=''
+  local -a all
   mapfile -t all < <(_bn_mounts_all)
-  draw "Mounts to show (current: ${BN_MOUNTS:-auto})"
-  for i in "${!all[@]}"; do
-    _bn_val "mnt:${all[i]}"
-    printf '  %2d) %-28s %s\n' $((i + 1)) "${all[i]}" "$_v"
+  MENU=()
+  declare -gA CHECKED=()
+  for m in "${all[@]}"; do
+    _bn_val "mnt:$m"
+    MENU+=("$m|$(printf '%-28s %s' "$m" "$_v")")
+    if [[ -z $BN_MOUNTS || "|$BN_MOUNTS|" == *"|$m|"* ]]; then CHECKED[$m]=1; fi
   done
-  printf '\n  Numbers separated by spaces, %sa%s = auto (every real mount; / is skipped while the Disk item is on), Enter = cancel\n' "$BOLD" "$CL"
-  read -rp "  › " r
-  case $r in
-    '') return ;;
-    a | A) BN_MOUNTS='' ;;
-    *)
-      for i in $r; do
-        [[ $i =~ ^[0-9]+$ ]] && ((i >= 1 && i <= ${#all[@]})) && sel+=("${all[i - 1]}")
-      done
-      ((${#sel[@]})) || return
-      BN_MOUNTS=$(IFS='|'; echo "${sel[*]}")
-      ;;
-  esac
+  ((${#MENU[@]})) || return
+  menu_check "Mounts to show - check every one for automatic" || return
+  for m in "${all[@]}"; do [[ -n ${CHECKED[$m]+x} ]] && sel+="${sel:+|}$m"; done
+  if ((${#CHECKED[@]} == ${#all[@]})); then BN_MOUNTS=''; else BN_MOUNTS=$sel; fi
   [[ " $BN_ITEMS " == *" mounts "* ]] || BN_ITEMS="${BN_ITEMS:+$BN_ITEMS }mounts"
   DIRTY=1
 }
@@ -943,82 +1143,88 @@ move_item() { # $1 key, $2 u|d  (moves among all items, including static text)
 # Print the numeric ids of all static text lines (BN_TEXT_<n>), sorted.
 text_ids() { compgen -v BN_TEXT_ | sed 's/BN_TEXT_//' | sort -n; }
 
-# Static text submenu: add, edit, delete, show/hide, recolor and move text lines.
+# Static text lines. ↑/↓ move, Space shows or hides the highlighted line, a adds, e edits,
+# x deletes, c colors, u/d move it among the other banner items, Enter or Esc goes back.
 text_menu() {
-  local cmd n v t var
+  local cur=0 i n id var tc t mark line
   local -a ids
   while true; do
     mapfile -t ids < <(text_ids)
-    draw "Static text lines"
-    for n in "${ids[@]}"; do
-      var="BN_TEXT_$n"
-      t="BN_TC_$n"
-      if [[ " $BN_ITEMS " == *" text$n "* ]]; then v="${GN}shown${CL} "; else v="${DIM}hidden${CL}"; fi
-      printf '  %2d) %s %s %s\n' "$n" "$v" "${!t:+$(swatch "${!t}")}" "${!var}"
+    n=${#ids[@]}
+    ((cur >= n && n > 0)) && cur=$((n - 1))
+    draw "Static text - your own lines in the banner"
+    ((n)) || printf '    %s(no lines yet - press a to add one)%s\n' "$DIM" "$CL"
+    for ((i = 0; i < n; i++)); do
+      var="BN_TEXT_${ids[i]}"
+      tc="BN_TC_${ids[i]}"
+      if [[ " $BN_ITEMS " == *" text${ids[i]} "* ]]; then mark='[x]'; else mark='[ ]'; fi
+      line="$mark ${!var}"
+      if ((i == cur)); then
+        printf '  %s› %s %s %s\n' "$REV" "$line" "$CL" "${!tc:+$(swatch "${!tc}")}"
+      else
+        printf '    %s %s\n' "$line" "${!tc:+$(swatch "${!tc}")}"
+      fi
     done
-    ((${#ids[@]})) || echo "  (none yet)"
-    printf '\n  %sa%s add   %se <n>%s edit   %sx <n>%s delete   %st <n>%s show/hide   %sc <n>%s color   %su/d <n>%s move   %sb%s back\n' \
-      "$BOLD" "$CL" "$BOLD" "$CL" "$BOLD" "$CL" "$BOLD" "$CL" "$BOLD" "$CL" "$BOLD" "$CL" "$BOLD" "$CL"
-    read -rp "  › " cmd n
-    case $cmd in
+    printf '\n  %s↑/↓ move  Space show/hide  a add  e edit  x delete  c color  u/d reorder  Enter done%s' "$DIM" "$CL"
+    read_key
+    id=${ids[cur]:-}
+    case $KEY in
+      up) ((cur > 0)) && cur=$((cur - 1)) ;;
+      down) ((cur < n - 1)) && cur=$((cur + 1)) ;;
       a | A)
-        n=1
-        while [[ -n $(eval "echo \${BN_TEXT_$n+x}") ]]; do ((n++)); done
-        read -rp "  Text: " t
+        echo
+        read -rp "  New line: " t
         [[ -z $t ]] && continue
-        printf -v "BN_TEXT_$n" '%s' "$t"
-        BN_ITEMS="${BN_ITEMS:+$BN_ITEMS }text$n"
+        id=1
+        while [[ -n $(eval "echo \${BN_TEXT_$id+x}") ]]; do id=$((id + 1)); done
+        printf -v "BN_TEXT_$id" '%s' "$t"
+        BN_ITEMS="${BN_ITEMS:+$BN_ITEMS }text$id"
         DIRTY=1
+        mapfile -t ids < <(text_ids)
+        for i in "${!ids[@]}"; do [[ ${ids[i]} == "$id" ]] && cur=$i; done
         ;;
-      b | B | '') return ;;
+      enter | esc | left | b | B | q | Q) return ;;
     esac
-    [[ $n =~ ^[0-9]+$ && " ${ids[*]} " == *" $n "* ]] || continue
-    case $cmd in
+    [[ -n $id ]] || continue
+    case $KEY in
+      space) toggle_item "text$id" ;;
       e)
-        var="BN_TEXT_$n"
+        var="BN_TEXT_$id"
+        echo
         read -rp "  Text [${!var}]: " t
         [[ -n $t ]] && printf -v "$var" '%s' "$t" && DIRTY=1
         ;;
       x)
-        remove_text "$n"
+        remove_text "$id"
         DIRTY=1
         ;;
-      t)
-        if [[ " $BN_ITEMS " == *" text$n "* ]]; then
-          BN_ITEMS=$(tr ' ' '\n' <<<"$BN_ITEMS" | grep -vx "text$n" | tr '\n' ' ')
-          BN_ITEMS=${BN_ITEMS% }
-        else
-          BN_ITEMS="${BN_ITEMS:+$BN_ITEMS }text$n"
-        fi
-        DIRTY=1
-        ;;
-      c) pick_color "BN_TC_$n" ;;
-      u | d) move_item "text$n" "$cmd" ;;
+      c) pick_color "BN_TC_$id" ;;
+      u | d) move_item "text$id" "$KEY" ;;
     esac
   done
 }
 
-# Layout & style submenu (layout, widths, separator, bars, threshold colors, icon set).
+# Layout & style submenu (layout, widths, separator, bars, load colors, icon set). Enter on a
+# row changes it: on/off and list settings switch to the next value, numbers ask for input.
 style_menu() {
-  local r
+  local r i last=''
   # Bar presets as "full|empty" pairs, split on "|" so multi-byte characters survive
   # without a UTF-8 locale. All of them render in stock terminal fonts.
   local -a layouts=(list columns inline) bars=('█|·' '█|░' '━|─' '#|-' '=|.')
   while true; do
-    draw "Layout & style"
-    printf '  1) Layout            %s\n' "$BN_LAYOUT"
-    printf '  2) Indent            %s\n' "$BN_INDENT"
-    printf '  3) Label width       %s\n' "$BN_LABEL_W"
-    printf '  4) Column width      %s   (columns layout)\n' "$BN_VALUE_W"
-    printf "  5) Separator         '%s'\n" "$BN_SEP"
-    printf '  6) Usage bars        %s   (all items; switch single items in Info items with g)\n' "$BN_BAR"
-    printf '  7) Bar width         %s\n' "$BN_BAR_W"
-    printf '  8) Bar characters    %s%s\n' "$BN_BAR_FULL" "$BN_BAR_EMPTY"
-    printf '  9) Load colors       %s   (bars green / yellow / red; without a bar, high usage turns the value yellow / red)\n' "$BN_THRESH"
-    printf '  i) Icons             %s   (off / unicode / emoji)\n' "$BN_ICONS"
-    echo "  b) Back"
-    read -rp "  › " r
-    case $r in
+    MENU=("1|1) Layout            $BN_LAYOUT"
+      "2|2) Indent            $BN_INDENT"
+      "3|3) Label width       $BN_LABEL_W"
+      "4|4) Column width      $BN_VALUE_W   (columns layout)"
+      "5|5) Separator         '$BN_SEP'"
+      "6|6) Usage bars        $BN_BAR   (all items; single items: Info items, g)"
+      "7|7) Bar width         $BN_BAR_W"
+      "8|8) Bar characters    $BN_BAR_FULL$BN_BAR_EMPTY"
+      "9|9) Load colors       $BN_THRESH   (yellow / red at high usage)"
+      "i|i) Icons             $BN_ICONS   (off / unicode / emoji)")
+    menu_pick "Layout & style - Enter changes the highlighted setting" "$last"
+    last=$PICK
+    case $PICK in
       1)
         for i in "${!layouts[@]}"; do [[ ${layouts[i]} == "$BN_LAYOUT" ]] && break; done
         BN_LAYOUT=${layouts[(i + 1) % 3]} DIRTY=1
@@ -1035,36 +1241,35 @@ style_menu() {
         BN_BAR_FULL=${r%%|*} BN_BAR_EMPTY=${r#*|} DIRTY=1
         ;;
       9) [[ $BN_THRESH == yes ]] && BN_THRESH=no || BN_THRESH=yes; DIRTY=1 ;;
-      i | I)
+      i)
         for i in "${!ICON_SETS[@]}"; do [[ ${ICON_SETS[i]} == "$BN_ICONS" ]] && break; done
         BN_ICONS=${ICON_SETS[(i + 1) % ${#ICON_SETS[@]}]} DIRTY=1
         ;;
-      *) return ;;
+      '') return ;;
     esac
   done
 }
 
 # Global colors submenu (art, labels, values, separator, static text, icons).
 colors_menu() {
-  local r
+  local last=''
   while true; do
-    draw "Colors"
-    printf '  1) Art           %s %s\n' "$(grad_swatch "$BN_ART_COLOR")" "$BN_ART_COLOR"
-    printf '  2) Labels        %s %s\n' "$(swatch "$BN_C_LABEL")" "$BN_C_LABEL"
-    printf '  3) Values        %s %s\n' "$(swatch "$BN_C_VALUE")" "$BN_C_VALUE"
-    printf '  4) Separator     %s %s\n' "$(swatch "$BN_C_SEP")" "$BN_C_SEP"
-    printf '  5) Static text   %s %s\n' "$(swatch "$BN_C_TEXT")" "$BN_C_TEXT"
-    printf '  6) Icons         %s %s\n' "$(swatch "${BN_C_ICON:-}")" "${BN_C_ICON:-}"
-    echo "  b) Back      (per-item colors: Info items → c <n>)"
-    read -rp "  › " r
-    case $r in
+    MENU=("1|1) Art           $(grad_swatch "$BN_ART_COLOR") $BN_ART_COLOR"
+      "2|2) Labels        $(swatch "$BN_C_LABEL") $BN_C_LABEL"
+      "3|3) Values        $(swatch "$BN_C_VALUE") $BN_C_VALUE"
+      "4|4) Separator     $(swatch "$BN_C_SEP") $BN_C_SEP"
+      "5|5) Static text   $(swatch "$BN_C_TEXT") $BN_C_TEXT"
+      "6|6) Icons         $(swatch "${BN_C_ICON:-}") ${BN_C_ICON:-}")
+    menu_pick "Colors (per-item colors: Info items, c)" "$last"
+    last=$PICK
+    case $PICK in
       1) pick_color BN_ART_COLOR grad ;;
       2) pick_color BN_C_LABEL ;;
       3) pick_color BN_C_VALUE ;;
       4) pick_color BN_C_SEP ;;
       5) pick_color BN_C_TEXT ;;
       6) pick_color BN_C_ICON ;;
-      *) return ;;
+      '') return ;;
     esac
   done
 }
@@ -1246,18 +1451,18 @@ ask_backup() {
   printf '   To restore it: %s\n' "$(run_cmd --restore)"
 }
 
-# Main menu "s": only with unsaved changes, ask Save or Cancel, then offer a backup of the
+# Main menu "s": only with unsaved changes, pick Save or Cancel, then offer a backup of the
 # banner being replaced, then apply.
 save_menu() {
-  local r
   if ((!DIRTY)); then
+    draw
     msg_warn "No changes to save"
     pause
     return
   fi
-  draw "Save changes"
-  read -rp "  [s] Save   [c] Cancel  › " r
-  if [[ ! $r =~ ^[sS] ]]; then
+  MENU=("s|Save" "c|Cancel")
+  menu_pick "Save your changes to the login banner?"
+  if [[ $PICK != s ]]; then
     msg_warn "Not saved - your changes are still here"
     pause
     return
@@ -1340,26 +1545,23 @@ pause() { read -rp "  Press Enter to continue " _; }
 restore_menu() {
   local r when
   while true; do
-    draw "Restore"
-    printf '  Status: %s\n\n' "$(banner_status)"
+    MENU=()
     if has_backup; then
       when=$(date -r "$BACKUP_DIR/bannarr.conf" '+%Y-%m-%d %H:%M' 2>/dev/null)
-      printf '  1) Restore the backup            (from %s)\n' "${when:-an earlier save}"
+      MENU+=("1|1) Restore the backup from ${when:-an earlier save}")
     else
-      printf '  %s1) Restore the backup            (none yet: offered when you save over a banner)%s\n' "$DIM" "$CL"
+      MENU+=("|   No backup yet: Bannarr offers one when you save over a banner")
     fi
-    printf '  2) Go back to the original banner (turns Bannarr off; your design is kept)\n'
-    printf '  3) Uninstall Bannarr             (go back, then optionally delete Bannarr'"'"'s settings)\n'
-    printf '  b) Back\n'
-    read -rp "  › " r
-    case $r in
+    MENU+=("2|2) Go back to the original banner (turns Bannarr off; your design is kept)"
+      "3|3) Uninstall Bannarr (go back, then optionally delete Bannarr's settings)")
+    menu_pick "Restore - $(banner_status)"
+    case $PICK in
       1)
-        has_backup || continue
         load_state "$BACKUP_DIR"
         DIRTY=1
-        draw "Previewing the backup"
-        read -rp "  [s] Save it as your banner   [c] Cancel  › " r
-        if [[ $r =~ ^[sS] ]]; then
+        MENU=("s|Save it as your banner" "c|Cancel")
+        menu_pick "Previewing the backup"
+        if [[ $PICK == s ]]; then
           save_apply
         else
           load_state
@@ -1374,39 +1576,35 @@ restore_menu() {
         pause
         ;;
       3) uninstall; load_state; DIRTY=0; pause ;;
-      *) return ;;
+      '') return ;;
     esac
   done
 }
 
 # Top-level menu loop.
 main_menu() {
-  local r
+  local r last=''
   while true; do
-    draw "Main menu"
-    cat <<EOF
-  1) Banner art          4) Layout & style
-  2) Info items          5) Colors
-  3) Static text         6) Other login messages: $(is_quiet && echo quiet || echo shown)
-
-  s) Save                r) Restore                   q) Quit
-EOF
-    read -rp "  › " r
-    case $r in
+    MENU=("1|1) Banner art" "2|2) Info items" "3|3) Static text" "4|4) Layout & style"
+      "5|5) Colors" "6|6) Other login messages: $(is_quiet && echo quiet || echo shown)"
+      "s|s) Save" "r|r) Restore" "q|q) Quit")
+    menu_pick "Main menu" "$last"
+    last=$PICK
+    case $PICK in
       1) art_menu ;;
       2) items_menu ;;
       3) text_menu ;;
       4) style_menu ;;
       5) colors_menu ;;
       6) motd_menu ;;
-      s | S) save_menu ;;
-      r | R) restore_menu ;;
-      q | Q)
+      s) save_menu ;;
+      r) restore_menu ;;
+      q | '')
         if ((DIRTY)); then
           read -rp "  Discard unsaved changes? [y/N]: " r
           [[ $r =~ ^[yY] ]] || continue
         fi
-        clear
+        printf '\033[H\033[2J'
         exit 0
         ;;
     esac

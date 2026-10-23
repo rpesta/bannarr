@@ -14,6 +14,9 @@ special handling for containers made with community-scripts.
 - **Editor.** A terminal editor with a live preview that runs the exact banner script it will
   install, using live values from the machine. When the terminal is big enough, it shows the
   gradient Bannarr wordmark.
+- **Keyboard menus.** ↑/↓ to move, Space to check several items, Enter to choose, Esc to go back.
+  The preview follows the highlight in the art gallery, font list and color picker, and stays
+  visible throughout.
 - **ASCII art.** A preset gallery (hostname in block letters, the Bannarr wordmark, Tux, a
   server rack, a welcome box, a divider line), a text-to-ASCII generator with a built-in block
   font (plus figlet's fonts if figlet is already installed), pasting, and editing in `$EDITOR`.
