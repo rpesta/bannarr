@@ -7,6 +7,11 @@
 
 <h1 align="center"><img src="assets/wordmark.svg" alt="bannarr" width="360"></h1>
 
+> [!WARNING]
+> **Not yet released: Bannarr is still under construction.** Expect bugs and breaking
+> changes. It hasn't been tested on real Debian, Ubuntu, Alpine, RHEL or Arch systems yet, so
+> only try it on a test box or a snapshotted container.
+
 Interactive editor for the SSH login banner on any Linux box: LXC containers, VMs or bare
 metal. Built with [community-scripts](https://community-scripts.org) (Proxmox VE
 Helper-Scripts) in mind.
@@ -16,9 +21,6 @@ Bannarr installs it as its own file, `/etc/profile.d/00_bannarr.sh`. On containe
 community-scripts, it also switches off their stock banner (`/etc/profile.d/00_lxc-details.sh`)
 by renaming it, never by editing it. Going back to the stock banner is just a rename back
 (see [Coexisting with community-scripts](#coexisting-with-community-scripts)).
-
-> **Status: early draft.** Syntax checks pass and the banner renderer has been exercised, but
-> the interactive menus have not yet been tested on real Debian, Alpine, RHEL or Arch guests.
 
 ```
   █▀▄ █▀█ █▀▀ █▄▀ █▀▀ █▀█
