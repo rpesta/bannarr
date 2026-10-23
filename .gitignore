@@ -1,0 +1,8 @@
+.DS_Store
+*.zip
+
+# Font files are never committed; the logo font is used only as outlines
+*.ttf
+*.otf
+*.woff
+*.woff2

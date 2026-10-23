@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 
-# Copyright (c) 2021-2026 community-scripts ORG
+# Copyright (c) 2026 Ryan Pesta
 # Author: rpesta
-# License: MIT | https://github.com/community-scripts/ProxmoxVE/raw/main/LICENSE
-# Source: https://github.com/community-scripts/ProxmoxVE
+# License: MIT | https://github.com/rpesta/bannarr/raw/main/LICENSE
+# Source: https://github.com/rpesta/bannarr
 
 # Bannarr - interactive editor for the SSH login banner, for any Linux box (LXC, VM, bare metal).
 # It writes its own /etc/profile.d/00_bannarr.sh. On community-scripts containers it also
@@ -12,7 +12,7 @@
 # busybox ash (Debian, Ubuntu, Alpine, Fedora, RHEL clones, Arch, openSUSE...).
 #
 # Usage: bannarr.sh --help
-# How it works, settings reference and function reference: README.md
+# How it works, settings reference and function reference: docs/DEVELOPMENT.md
 
 APP="Bannarr"
 APP_TYPE="addon"
