@@ -7,17 +7,6 @@
 
 <h1 align="center"><img src="assets/wordmark.svg" alt="bannarr" width="360"></h1>
 
-The editor greets you with the same wordmark in the terminal:
-
-```
-██       ████████ ██▄▄▄▄▄▄ ██▄▄▄▄▄▄ ████████ ██▄▄▄▄▄▄ ██▄▄▄▄▄▄
-██▄▄▄▄▄▄ ▄▄▄▄▄▄██ ████████ ████████ ▄▄▄▄▄▄██ ████████ ████████
-██▀▀▀▀██ ██▀▀▀▀██ ████████ ████████ ██▀▀▀▀██ ████████ ████████
-██    ██ ██    ██ ██    ██ ██    ██ ██    ██ ██    ▀▀ ██    ▀▀
-████████ ████████ ██    ██ ██    ██ ████████ ██       ██
-████████ ████████ ██    ██ ██    ██ ████████ ██       ██
-```
-
 Interactive editor for the SSH login banner on any Linux box: LXC containers, VMs or bare
 metal. Built with [community-scripts](https://community-scripts.org) (Proxmox VE
 Helper-Scripts) in mind.
