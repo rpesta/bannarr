@@ -421,9 +421,15 @@ load_state() {
 # shell; [ -t 1 ] keeps non-interactive sessions (scp, rsync, ssh host cmd) silent; and the
 # exported BANNARR_SHOWN stops the banner repeating in nested shells, tmux and screen
 # (RHEL-likes also source profile.d from /etc/bashrc for every interactive shell).
+# $1 = "preview" drops just that first check: the editor captures the preview's output, which
+# is not a terminal, so the real check would print nothing. Everything else is identical.
 build_profile() {
   echo "# $MARKER - re-run Bannarr to change. Settings: $CONF_FILE"
-  echo 'if [ -t 1 ] && [ -z "${BANNARR_SHOWN:-}" ]; then ('
+  if [[ ${1:-} == preview ]]; then
+    echo 'if true; then ('
+  else
+    echo 'if [ -t 1 ] && [ -z "${BANNARR_SHOWN:-}" ]; then ('
+  fi
   write_conf
   emit_renderer
   echo '_bn_art() {'
@@ -639,8 +645,8 @@ draw() {
   local sig
   sig=$(declare -p "${!BN_@}" 2>/dev/null; printf '%s\n' "${ART_LINES[@]}")
   if [[ $sig != "$PREVIEW_SIG" ]]; then
-    build_profile >"$TMP"
-    PREVIEW_OUT=$(BANNARR_SHOWN='' sh "$TMP")
+    build_profile preview >"$TMP"
+    PREVIEW_OUT=$(sh "$TMP")
     PREVIEW_SIG=$sig
   fi
   printf '\033[H\033[2J'
@@ -1671,7 +1677,7 @@ first_run_cs() {
 main() {
   case "${1:-}" in
     -h | --help) usage; exit 0 ;;
-    --preview) load_state; build_profile >"$TMP"; BANNARR_SHOWN='' sh "$TMP"; exit 0 ;;
+    --preview) load_state; build_profile preview >"$TMP"; sh "$TMP"; exit 0 ;;
     --apply) need_root; load_state; save_apply; exit $? ;;
     --restore) need_root; restore_backup; exit $? ;;
     --quiet-motd) need_root; quiet_motd; exit 0 ;;

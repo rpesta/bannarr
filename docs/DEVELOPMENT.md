@@ -57,8 +57,11 @@ shellcheck -s sh /tmp/bn/etc/profile.d/00_bannarr.sh  # if shellcheck is install
      nested shells, tmux or screen. RHEL-likes source `profile.d` from `/etc/bashrc` for every
      interactive shell, so without it the banner would show each time.
    - Login never reads `/etc/bannarr/`, so the banner keeps working if that folder is deleted.
-4. **The live preview runs the real thing.** `draw` runs `build_profile` into a temp file and
-   executes it with `sh`.
+4. **The live preview runs the real thing.** `draw` runs `build_profile preview` into a temp
+   file, executes it with `sh` and captures the output.
+   - **Preview mode** drops only the `[ -t 1 ]` terminal check. The captured output isn't a
+     terminal, so the real check would print nothing; this caused an empty preview once.
+     Everything else is the script that gets installed.
    - **Cached:** the output is kept under a signature of all `BN_*` variables and the art,
      and only rebuilt when that changes. So menus can redraw on every keypress without
      re-sampling the CPU each time; values refresh when a setting changes.
@@ -275,6 +278,14 @@ bash bannarr.sh --apply && bash bannarr.sh --quiet-motd
 ls "$E" "$E/profile.d"; stat -c '%a %n' "$E"/update-motd.d/*   # parked + 644
 BANNARR_SHOWN= sh "$E/profile.d/00_bannarr.sh"                  # needs a terminal
 bash bannarr.sh --revert && ls "$E" "$E/profile.d"               # everything back, 755 again
+```
+
+Check that the editor's preview actually has content. It once came out empty because of the
+terminal check described in [How it works](#how-it-works):
+
+```bash
+sed '$d' bannarr.sh > /tmp/bn_lib.sh   # the script without its final "main" call
+BANNARR_ETC_DIR=/tmp/bn/etc bash -c '. /tmp/bn_lib.sh; load_state; draw x >/dev/null; [ -n "$PREVIEW_OUT" ] && echo preview OK'
 ```
 
 Git Bash on Windows can run most of this, but it reports any file that starts with `#!` as
