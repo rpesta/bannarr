@@ -34,9 +34,10 @@ language for non-developers.
   generated `/etc/profile.d/00_bannarr.sh`, and also `eval`'d into the editor.
 - **State:** `set_defaults`, `load_state`, `write_conf` and `build_profile`. Settings are
   `BN_*` variables.
-- **ASCII art:** presets, the built-in block font and figlet.
+- **ASCII art:** presets, the built-in 5×7 font (`FONT`, `block_text`) and figlet.
 - **TUI helpers and menus:** `draw` redraws the live preview on every loop.
-- **System changes:** `save_apply`, `park`/`unpark`, `quiet_motd`/`unquiet_motd`, backups,
+- **System changes:** `save_apply`, `park`/`unpark`, `quiet_motd`/`unquiet_motd`, the
+  single backup (`save_menu`, `ask_backup`; one slot only, never a library of designs),
   `revert_default` and `uninstall`.
 - **`main`:** command-line options, then the main menu.
 

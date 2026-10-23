@@ -18,11 +18,13 @@ special handling for containers made with community-scripts.
   server rack, a welcome box, a divider line), a text-to-ASCII generator with a built-in block
   font (plus figlet's fonts if figlet is already installed), pasting, and editing in `$EDITOR`.
   Art can be one color or a per-line gradient.
-- **Art size.** Block-letter art can be drawn at 1×, 2× or 3×. The default, `auto`, uses 2×
-  when it fits a normal terminal.
+- **Built-in font.** A readable 5×7 pixel font, 4 rows tall, for the hostname and the text
+  generator.
+- **Art size.** Block-letter art can be drawn at 1×, 2× or 3×. The default, `auto`, doubles
+  only small art that still fits a normal terminal.
 - **Info items.** 19 of them, including hostname, IP, OS, kernel, uptime, load, CPU, memory,
   swap, disk and disk mounts. Each can be shown or hidden, reordered, relabelled, recolored and
-  given an icon. The icon sets are unicode and emoji.
+  given an icon. The icon sets are unicode (symbols every terminal font has) and emoji.
 - **Usage bars.** For CPU, memory, swap, disk and mounts, with green, yellow and red usage
   colors and a dim dotted track. They can be switched on or off for all items or one at a time.
 - **Zero dependencies.** Bannarr never installs packages, needs no special fonts, and works
@@ -37,12 +39,13 @@ special handling for containers made with community-scripts.
   writes to `/etc/motd`, using the reversible quiet mode.
 - **openSUSE support.** The installed banner is executable, because openSUSE only loads
   executable `profile.d` scripts for some shells.
-- **Backups.** Named backups, a restore with a preview first, and automatic backups before
-  every apply (the last 5 are kept).
+- **Saving.** Pressing **s** asks Save or Cancel. When a saved banner would be replaced, it
+  offers to back it up first, keeping exactly one backup. Bannarr then prints where the backup
+  went and the command that undoes the save. `--restore` and the Restore menu bring the backup
+  back, with a preview in the editor.
 - **Quiet login** (opt-in). Hides the other login messages (`/etc/motd`, `update-motd.d`,
   `/etc/motd.d`), with an exact restore.
 - **Undo.** `--revert` returns the box to its original login, and `--uninstall` removes
   Bannarr's settings as well.
-- **Command-line options** for preview, apply, backup, list, restore, quiet, revert and
-  uninstall.
+- **Command-line options** for preview, apply, restore, quiet, revert and uninstall.
 - **Logo and wordmark** set in Null Pointer by Tom Murphy 7.

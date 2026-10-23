@@ -59,10 +59,19 @@ shellcheck -s sh /tmp/bn/etc/profile.d/00_bannarr.sh  # if shellcheck is install
    - Login never reads `/etc/bannarr/`, so the banner keeps working if that folder is deleted.
 4. **The live preview runs the real thing.** Every menu loop calls `draw`, which runs
    `build_profile` into a temp file and executes it with `sh`.
-5. **Saving is guarded.** `save_apply` writes the new script next to the live one and runs
-   `sh -n` on it; nothing changes unless that passes. If the saved design differs from the one
-   being applied, it's auto-saved as a backup first. Only then does it disable the
-   community-scripts banner and swap in the new file.
+5. **Saving is guarded.**
+   - **Asking first:** in the editor, `save_menu` runs only when there are unsaved changes.
+     It asks Save or Cancel, then `ask_backup` offers to copy the currently saved design into
+     the **single** backup slot, `/etc/bannarr/backup/`. It does that only if a saved design
+     exists, and replaces any previous backup. It prints the backup's location and the
+     `--restore` command.
+   - **Syntax check:** `save_apply` writes the new script next to the live one and runs
+     `sh -n` on it; nothing changes unless that passes.
+   - **Swapping in:** only then does it disable the community-scripts banner, swap in the new
+     file, and print the `--revert` command.
+   - **No automatic backups:** there are no named backups, no backup library, and
+     `save_apply` itself never makes a backup. The command-line options (`--apply`,
+     `--restore`) never prompt.
 
 ## Files on the target system
 
@@ -72,7 +81,7 @@ shellcheck -s sh /tmp/bn/etc/profile.d/00_bannarr.sh  # if shellcheck is install
 | `/etc/profile.d/00_lxc-details.sh.bannarr-disabled` | The community-scripts banner, switched off but unchanged |
 | `/etc/bannarr/bannarr.conf` | Saved settings (`BN_*` assignments, mode 600) |
 | `/etc/bannarr/banner.txt` | Saved ASCII art, one line per line |
-| `/etc/bannarr/backups/<timestamp>[-label]/` | Backups: `bannarr.conf` + `banner.txt`. Auto-saves end in `-autosave`; the last `AUTOSAVE_KEEP` (5) are kept |
+| `/etc/bannarr/backup/` | The one backup (`bannarr.conf` + `banner.txt`): the design from before the last save, made only when the user says yes |
 | `/etc/motd.bannarr-disabled` | `/etc/motd` while login messages are quiet |
 | `/etc/bannarr/quiet/` | Record of quieted login messages: `enabled` marker, `update-motd.d.list` (original modes), `motd.d/` (moved entries) |
 
@@ -86,7 +95,7 @@ Nothing runs `00_lxc-details.sh` by name. At login, `/etc/profile` runs every
 
 | | Community-scripts box | Any other box |
 | --- | --- | --- |
-| **Save & apply** | Writes `00_bannarr.sh` and `park`s `00_lxc-details.sh` as `00_lxc-details.sh.bannarr-disabled`, which no longer matches `*.sh` | Writes `00_bannarr.sh` |
+| **Save** | Writes `00_bannarr.sh` and `park`s `00_lxc-details.sh` as `00_lxc-details.sh.bannarr-disabled`, which no longer matches `*.sh` | Writes `00_bannarr.sh` |
 | **Revert** | Deletes `00_bannarr.sh` and `unpark`s the original | Deletes `00_bannarr.sh` |
 | **Default design** (`set_defaults`) | Starts with the original banner's title and credit lines as static text (`text1`, `text2`) | No text lines |
 | **First run** (`first_run_cs`) | Asks whether to keep the title and the credit line; both default to yes | Nothing asked |
@@ -163,12 +172,12 @@ All settings live in `bannarr.conf` and are embedded in the profile script.
 | `BN_BAR_W` | `10` | Bar width in cells |
 | `BN_BAR_FULL` / `BN_BAR_EMPTY` | `█` / `·` | Bar characters. The fill takes the threshold or value color and the empty track the separator color. `░` was dropped as the default because some fonts lack it and the substitute glyph overflows its line |
 | `BN_THRESH` | `yes` | Color bars (or values, when bars are off) green/yellow/red by usage |
-| `BN_ICONS` | `unicode` | Icon set: `off`, `unicode`, `emoji` |
+| `BN_ICONS` | `unicode` | Icon set: `off`, `unicode` (code page 437 symbols only), `emoji` |
 | `BN_MOUNTS` | *(empty = auto)* | `\|`-separated mount points for the `mounts` item |
 | `BN_ART_COLOR` | ocean gradient | One color, or a space-separated list cycled per art line |
 | `BN_ART_SRC` | `hostname` | `hostname` or `text` (built-in font, redrawn on every load) or `custom` (from `banner.txt`) |
 | `BN_ART_TEXT` | *(empty)* | The text drawn when `BN_ART_SRC=text` |
-| `BN_ART_SIZE` | `auto` | `1`–`3` scales block-letter art, `auto` = 2x if that fits 78 columns × 8 rows, else 1x. Art with other characters (figlet, Tux) is never scaled |
+| `BN_ART_SIZE` | `auto` | `1`–`3` scales block-letter art. `auto` = 2x if that fits 78 columns × 6 rows, else 1x, so the 4-row built-in font stays at 1x and only small art is doubled. Art with other characters (figlet, Tux) is never scaled |
 | `BN_C_LABEL` / `BN_C_VALUE` | `yellow` / `bgreen` | Label and value colors |
 | `BN_C_SEP` / `BN_C_TEXT` / `BN_C_ICON` | `gray` / `gray` / `cyan` | Separator, static text and icon colors |
 | `BN_L_<key>` | *(empty)* | Label override for an item |
@@ -206,9 +215,10 @@ All settings live in `bannarr.conf` and are embedded in the profile script.
 | `park`, `unpark` | Rename a file to / from `*.bannarr-disabled`, never overwriting a newer copy |
 | `is_quiet`, `quiet_motd`, `unquiet_motd`, `motd_sources` | Quiet / restore other login messages and list what's there |
 | `revert_default`, `uninstall`, `banner_status` | Go back to the default login / remove Bannarr / status line |
-| `make_backup`, `list_backups`, `restore_backup`, `prune_autosaves` | Backups |
+| `save_menu`, `ask_backup` | Save or Cancel, then offer the backup; print where it went and how to undo |
+| `has_backup`, `make_backup`, `restore_backup`, `run_cmd` | The single backup slot, and the one-line command shown in undo hints (`RUN_URL`) |
 | `draw`, `rule`, `pause`, `print_logo`, `logo_fits` | Screen redraw with wordmark and live preview |
-| `main_menu`, `art_menu`, `preset_menu`, `generate_menu`, `items_menu`, `mounts_menu`, `text_menu`, `style_menu`, `colors_menu`, `motd_menu`, `backups_menu`, `restore_menu` | Menus |
+| `main_menu`, `art_menu`, `preset_menu`, `generate_menu`, `items_menu`, `mounts_menu`, `text_menu`, `style_menu`, `colors_menu`, `motd_menu`, `restore_menu` | Menus |
 | `pick_color`, `ask_num`, `swatch`, `grad_swatch` | Input widgets |
 | `preset_art`, `block_text`, `paste_art`, `edit_art`, `trim_art` | ASCII art sources |
 | `art_to_px`, `px_to_art`, `art_scale`, `art_out` | Resize block-letter art: convert █▀▄ to a pixel grid, scale it, convert back |
@@ -221,8 +231,12 @@ Bannarr must work on a stock box with nothing added, like the community-scripts 
 replaces:
 - **Never install packages.** If figlet happens to be installed, the generator also lists its
   fonts, but Bannarr never offers to install it.
-- **Never require a special font.** Icons are unicode or emoji, and bar characters are ones
-  stock terminal fonts have. Nerd Font icons were removed for this reason.
+- **Never require a special font.** Nerd Font icons were removed for this reason.
+  - **Icons:** the `unicode` set uses only symbols from the original PC character set (code
+    page 437: `⌂ ↔ ♦ ▲ ► ↑ ≈ ■ ∙ ▬ ↕ ◘ ≡ ☺ ○`), which practically every terminal font has.
+    Earlier picks such as `▣ ⇄ ◫` showed as `?` boxes on a real container.
+  - **Bars:** use characters that stock terminal fonts have.
+  - **ASCII art:** the built-in font is drawn with `█ ▀ ▄` only.
 - **Assume no UTF-8 locale.** Minimal containers often run in the `C` locale, where bash
   counts and slices strings in bytes. Never take one character of a string that may hold
   multi-byte characters with `${s:i:1}`. Replace whole sequences with `${s//█/#}`, as

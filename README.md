@@ -24,19 +24,19 @@ as you go. The original banner stays safe, so you can put it back whenever you l
 <!-- Screenshots will replace this sample once Bannarr has been run on real systems. -->
 
 ```
-  ████    ██████  ██████  ██  ██  ██████  ██████
-  ██  ██  ██  ██  ██      ████    ██      ██  ██
-  ██  ██  ██  ██  ██      ██  ██  ████    ████
-  ████    ██████  ██████  ██  ██  ██████  ██  ██
+  █▀▀▄  ▄▀▀▀▄ ▄▀▀▀▄ █  ▄▀ █▀▀▀▀ █▀▀▀▄
+  █   █ █   █ █     █▄▀   █▄▄▄  █▄▄▄▀
+  █  ▄▀ █   █ █   ▄ █ ▀▄  █     █ ▀▄
+  ▀▀▀    ▀▀▀   ▀▀▀  ▀   ▀ ▀▀▀▀▀ ▀   ▀
 
-  ◆ OS        : Debian GNU/Linux 12 (bookworm)
+  ♦ OS        : Debian GNU/Linux 12 (bookworm)
   ⌂ Hostname  : docker
-  ⇄ IPv4      : 192.168.1.42
+  ↔ IPv4      : 192.168.1.42
   ↑ Uptime    : 3d 4h 12m
-  ▣ CPU       : █········· 12% of 4 cores
-  ▤ Memory    : ███······· 1.2 / 4.0 GiB (31%)
-  ◫ Disk (/)  : █████····· 11.8 / 20.0 GiB (59%)
-  ◫ /mnt/media: █████████· 82.1 GiB free of 1.8 TiB
+  ■ CPU       : █········· 12% of 4 cores
+  ▬ Memory    : ███······· 1.2 / 4.0 GiB (31%)
+  ◘ Disk (/)  : █████····· 11.8 / 20.0 GiB (59%)
+  ◘ /mnt/media: █████████· 82.1 GiB free of 1.8 TiB
 ```
 
 Bannarr runs on the box whose banner you want to change: a container, a virtual machine, a
@@ -76,8 +76,8 @@ live preview and an undo button.
 - **Live preview.** See exactly what your login will look like, with real values from the
   machine, while you edit.
 - **Safe to try.** Your original banner is never deleted, and one command brings it back.
-- **Backups.** Save designs you like and switch between them. Bannarr also keeps your last few
-  designs automatically, so any change can be undone.
+- **A backup when you want one.** When you save over a banner, Bannarr asks whether to back up
+  the old one first, then tells you where it went and the one command that brings it back.
 - **A clean login** (optional). Hide the other messages some systems show at login, such as
   Ubuntu's news and tips, so your banner is the only thing you see. They can be brought back
   exactly as they were.
@@ -120,8 +120,13 @@ sudo bash bannarr/bannarr.sh
 ## Using it
 
 Bannarr opens with a live preview of your banner at the top and a menu underneath. Nothing
-changes on the machine until you press **s** to save. Your new banner then appears the next
-time you log in.
+changes on the machine until you save:
+1. Press **s**, then choose **Save** or **Cancel**.
+2. If a banner was already saved, Bannarr asks whether to back it up first. There is only ever
+   one backup, the banner from before your last save.
+3. Bannarr says where any backup went, and the command to undo the save.
+
+Your new banner appears the next time you log in.
 
 | Key | What it opens |
 | :-: | ------------- |
@@ -131,8 +136,8 @@ time you log in.
 | **4** | Layout & style: layout, spacing, usage bars and icons |
 | **5** | Colors |
 | **6** | Other login messages: hide or bring back the extra messages some systems show |
-| **s** | Save & apply |
-| **r** | Backups & restore: save a design, restore one, go back to the original, or uninstall |
+| **s** | Save or cancel your changes, with the option to back up the banner they replace |
+| **r** | Restore: bring back your backup, go back to the original banner, or uninstall |
 
 The lists in menus **2** and **3** show the keys you can use at the bottom of the screen. Type a
 number to turn that row on or off.
@@ -145,13 +150,11 @@ You can also skip the menus and do common jobs directly:
 | ------- | ------------ |
 | `--preview` | Show your saved banner |
 | `--apply` | Install your saved banner again, for example after renaming the box |
-| `--backup [name]` | Save a copy of your current design |
-| `--list-backups` | List your saved designs |
-| `--restore NAME` | Switch to a saved design |
+| `--restore` | Bring back the banner you backed up when you last saved |
 | `--quiet-motd` | Hide the other login messages |
 | `--restore-motd` | Bring the other login messages back |
-| `--revert` | Turn Bannarr off and bring back the original login. Your designs are kept |
-| `--uninstall` | Turn Bannarr off and, if you choose, delete your designs too |
+| `--revert` | Turn Bannarr off and bring back the original login. Your design is kept |
+| `--uninstall` | Turn Bannarr off and, if you choose, delete your design and backup too |
 | `--help` | Show all of this |
 
 ### On community-scripts containers

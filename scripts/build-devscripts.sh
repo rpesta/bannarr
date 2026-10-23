@@ -31,15 +31,19 @@ export CS_HEADER="# Copyright (c) 2021-2026 community-scripts ORG
 export CS_CORE='source <(curl -fsSL "${COMMUNITY_SCRIPTS_CORE_URL:-https://raw.githubusercontent.com/community-scripts/core/main}/core/core.func")
 source <(curl -fsSL "${COMMUNITY_SCRIPTS_CORE_URL:-https://raw.githubusercontent.com/community-scripts/core/main}/lib/tools.func")'
 export CS_DOCS="$repo_url/blob/main/docs/DEVELOPMENT.md"
+# Where their users run it from, for the "how to undo" commands Bannarr prints
+export CS_RUN_URL='RUN_URL="https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/tools/addon/bannarr.sh"'
 
 mkdir -p "$(dirname "$dest")"
 
 # 1. Replace this repo's 4-line header with theirs.
 # 2. Replace the marked devscripts-core block with their source lines.
-# 3. Point the docs/DEVELOPMENT.md reference at this repository, since their repo has no such file.
+# 3. Point RUN_URL at their copy, so printed undo commands run the add-on users installed.
+# 4. Point the docs/DEVELOPMENT.md reference at this repository, since their repo has no such file.
 awk '
   !header && /^# Copyright \(c\)/ { print ENVIRON["CS_HEADER"]; header = 1; skip = 3; next }
   skip > 0 { skip--; next }
+  /^RUN_URL=/ { print ENVIRON["CS_RUN_URL"]; next }
   /^# >>> devscripts-core$/ { print ENVIRON["CS_CORE"]; print ""; block = 1; next }
   /^# <<< devscripts-core$/ { block = 0; next }
   block { next }
@@ -64,6 +68,7 @@ check "author in Name (GitHubUsername) form" "grep -q '^# Author: Ryan Pesta (rp
 check "no license link to this repo" "! grep -q 'rpesta/bannarr/raw/main/LICENSE' '$dest'"
 check "core.func and tools.func sourced" "[ \$(grep -c 'community-scripts/core/main' '$dest') -eq 2 ]"
 check "build markers removed" "! grep -q 'devscripts-core' '$dest'"
+check "undo commands point at their copy" "grep -q '^RUN_URL=\"https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/tools/addon/bannarr.sh\"' '$dest'"
 check "APP_TYPE is addon" "grep -q '^APP_TYPE=\"addon\"$' '$dest'"
 check "messages name the app (no \$APP)" "! grep -Eq 'msg_[a-z]+ \"[^\"]*\\\$\\{?APP' '$dest'"
 check "no msg_info calls (each needs a closing msg_ok)" "! grep -v '^[[:space:]]*#' '$dest' | grep -q 'msg_info'"
