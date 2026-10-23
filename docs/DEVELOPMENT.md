@@ -76,8 +76,8 @@ shellcheck -s sh /tmp/bn/etc/profile.d/00_bannarr.sh  # if shellcheck is install
 | `/etc/motd.bannarr-disabled` | `/etc/motd` while login messages are quiet |
 | `/etc/bannarr/quiet/` | Record of quieted login messages: `enabled` marker, `update-motd.d.list` (original modes), `motd.d/` (moved entries) |
 
-Nothing else is touched: no `sshd_config`, PAM, user dotfiles or packages, apart from figlet
-when the user agrees to install it.
+Nothing else is touched: no `sshd_config`, PAM, user dotfiles or packages. Bannarr never
+installs anything (see [Zero dependencies](#zero-dependencies)).
 
 ## Coexisting with community-scripts
 
@@ -88,9 +88,19 @@ Nothing runs `00_lxc-details.sh` by name. At login, `/etc/profile` runs every
 | --- | --- | --- |
 | **Save & apply** | Writes `00_bannarr.sh` and `park`s `00_lxc-details.sh` as `00_lxc-details.sh.bannarr-disabled`, which no longer matches `*.sh` | Writes `00_bannarr.sh` |
 | **Revert** | Deletes `00_bannarr.sh` and `unpark`s the original | Deletes `00_bannarr.sh` |
-| **Default design** (`set_defaults`) | Includes the community-scripts credit line as `text1` | No credit line |
+| **Default design** (`set_defaults`) | Starts with the original banner's title and credit lines as static text (`text1`, `text2`) | No text lines |
+| **First run** (`first_run_cs`) | Asks whether to keep the title and the credit line; both default to yes | Nothing asked |
 
-`is_cs_box` decides which column applies: the original file is present, active or parked. If
+`is_cs_box` decides which column applies: the original file is present, active or parked.
+`cs_banner_lines` reads the title ("… LXC Container") and credit ("Provided by: …") lines from
+that file. It drops the `echo -e "…"` wrapper, color codes (real escape bytes or literal
+`\033[…m` and `\e[…m`) and extra spaces, so the text matches what the original banner showed,
+emoji included. Nothing is hard-coded, so a change to the community-scripts wording carries
+through. If the lines can't be found, the design simply starts without them.
+
+Community-scripts doesn't require the credit to be shown: its MIT license covers copies of
+its scripts, not the output they write onto a user's machine. Keeping the credit by default
+is a courtesy, and it makes a future submission to community-scripts easier. If
 an installer recreates `00_lxc-details.sh`, the next `--apply` parks the newer copy as
 `*.bannarr-disabled.<timestamp>`, so `--revert` still restores the original.
 
@@ -140,22 +150,25 @@ All settings live in `bannarr.conf` and are embedded in the profile script.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `BN_ITEMS` | `os hostname ip uptime cpu memory disk` (`text1` first on community-scripts boxes) | Space-separated display order: item keys and `textN` static lines |
-| `BN_TEXT_<n>` | community-scripts credit line (`n`=1, community-scripts boxes only) | Static text line `n` |
+| `BN_ITEMS` | `os hostname ip uptime cpu memory disk` (`text1 text2` first on community-scripts boxes) | Space-separated display order: item keys and `textN` static lines |
+| `BN_TEXT_<n>` | the original banner's title and credit lines (community-scripts boxes only) | Static text line `n` |
 | `BN_TC_<n>` | *(empty)* | Color override for text line `n` |
 | `BN_LAYOUT` | `list` | `list`, `columns` or `inline` |
 | `BN_INDENT` | `2` | Spaces before every line |
 | `BN_LABEL_W` | `10` | Label column width (`list`/`columns`) |
 | `BN_VALUE_W` | `26` | Value width in `columns` layout |
 | `BN_SEP` | `: ` | Text between label and value |
-| `BN_BAR` | `yes` | Show usage bars |
+| `BN_BAR` | `yes` | Show usage bars (all items; `BN_B_<key>` overrides one item) |
+| `BN_B_<key>` | *(empty = follow `BN_BAR`)* | `yes`/`no`: usage bar for one item (`cpu`, `memory`, `swap`, `disk`, `mounts`) |
 | `BN_BAR_W` | `10` | Bar width in cells |
-| `BN_BAR_FULL` / `BN_BAR_EMPTY` | `█` / `░` | Bar characters |
+| `BN_BAR_FULL` / `BN_BAR_EMPTY` | `█` / `·` | Bar characters. The fill takes the threshold or value color and the empty track the separator color. `░` was dropped as the default because some fonts lack it and the substitute glyph overflows its line |
 | `BN_THRESH` | `yes` | Color bars (or values, when bars are off) green/yellow/red by usage |
-| `BN_ICONS` | `unicode` | Icon set: `off`, `unicode`, `emoji`, `nerd` |
+| `BN_ICONS` | `unicode` | Icon set: `off`, `unicode`, `emoji` |
 | `BN_MOUNTS` | *(empty = auto)* | `\|`-separated mount points for the `mounts` item |
 | `BN_ART_COLOR` | ocean gradient | One color, or a space-separated list cycled per art line |
-| `BN_ART_SRC` | `hostname` | `hostname` (art rebuilt on every load) or `custom` (from `banner.txt`) |
+| `BN_ART_SRC` | `hostname` | `hostname` or `text` (built-in font, redrawn on every load) or `custom` (from `banner.txt`) |
+| `BN_ART_TEXT` | *(empty)* | The text drawn when `BN_ART_SRC=text` |
+| `BN_ART_SIZE` | `auto` | `1`–`3` scales block-letter art, `auto` = 2x if that fits 78 columns × 8 rows, else 1x. Art with other characters (figlet, Tux) is never scaled |
 | `BN_C_LABEL` / `BN_C_VALUE` | `yellow` / `bgreen` | Label and value colors |
 | `BN_C_SEP` / `BN_C_TEXT` / `BN_C_ICON` | `gray` / `gray` / `cyan` | Separator, static text and icon colors |
 | `BN_L_<key>` | *(empty)* | Label override for an item |
@@ -187,6 +200,7 @@ All settings live in `bannarr.conf` and are embedded in the profile script.
 | --- | --- |
 | `main`, `usage`, `need_root` | Entry point and argument handling |
 | `is_cs_box`, `set_defaults`, `load_state`, `write_conf` | Settings in and out (`load_state` also reads a backup directory) |
+| `cs_banner_lines`, `first_run_cs`, `remove_text` | Read the community-scripts title and credit, ask whether to keep them, drop a text line |
 | `emit_renderer`, `build_profile` | Generate the banner script |
 | `save_apply`, `disable_cs_banner` | Install the banner and switch off the community-scripts one |
 | `park`, `unpark` | Rename a file to / from `*.bannarr-disabled`, never overwriting a newer copy |
@@ -197,15 +211,28 @@ All settings live in `bannarr.conf` and are embedded in the profile script.
 | `main_menu`, `art_menu`, `preset_menu`, `generate_menu`, `items_menu`, `mounts_menu`, `text_menu`, `style_menu`, `colors_menu`, `motd_menu`, `backups_menu`, `restore_menu` | Menus |
 | `pick_color`, `ask_num`, `swatch`, `grad_swatch` | Input widgets |
 | `preset_art`, `block_text`, `paste_art`, `edit_art`, `trim_art` | ASCII art sources |
+| `art_to_px`, `px_to_art`, `art_scale`, `art_out` | Resize block-letter art: convert █▀▄ to a pixel grid, scale it, convert back |
 | `move_item`, `text_ids` | List helpers |
-| `pkg_install`, `sq`, `hn` | Utilities |
+| `sq`, `hn` | Utilities |
+
+## Zero dependencies
+
+Bannarr must work on a stock box with nothing added, like the community-scripts banner it
+replaces:
+- **Never install packages.** If figlet happens to be installed, the generator also lists its
+  fonts, but Bannarr never offers to install it.
+- **Never require a special font.** Icons are unicode or emoji, and bar characters are ones
+  stock terminal fonts have. Nerd Font icons were removed for this reason.
+- **Assume no UTF-8 locale.** Minimal containers often run in the `C` locale, where bash
+  counts and slices strings in bytes. Never take one character of a string that may hold
+  multi-byte characters with `${s:i:1}`. Replace whole sequences with `${s//█/#}`, as
+  `art_to_px` does, or split on an ASCII separator, as the bar presets do with `"█|·"`.
 
 ## Rules for the renderer
 
 Everything inside `emit_renderer`'s heredoc runs under dash and busybox ash at login, so it
 must stay **POSIX sh**: no arrays, `[[ ]]`, `local`, `$'...'` or `${var^^}`. Store unusual
-characters, such as Nerd Font glyphs in the Private Use Area, as `printf` octal escapes, because
-editors and copy/paste tend to drop them.
+characters as `printf` octal escapes if editors or copy/paste might drop them.
 
 ## Testing without touching `/etc`
 

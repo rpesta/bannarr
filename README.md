@@ -24,18 +24,19 @@ as you go. The original banner stays safe, so you can put it back whenever you l
 <!-- Screenshots will replace this sample once Bannarr has been run on real systems. -->
 
 ```
-  █▀▄ █▀█ █▀▀ █▄▀ █▀▀ █▀█
-  █▄▀ █▄█ █▄▄ █ █ ██▄ █▀▄
+  ████    ██████  ██████  ██  ██  ██████  ██████
+  ██  ██  ██  ██  ██      ████    ██      ██  ██
+  ██  ██  ██  ██  ██      ██  ██  ████    ████
+  ████    ██████  ██████  ██  ██  ██████  ██  ██
 
-  Provided by: community-scripts ORG | GitHub: https://github.com/community-scripts/ProxmoxVE
   ◆ OS        : Debian GNU/Linux 12 (bookworm)
   ⌂ Hostname  : docker
   ⇄ IPv4      : 192.168.1.42
   ↑ Uptime    : 3d 4h 12m
-  ▣ CPU       : █░░░░░░░░░ 12% of 4 cores
-  ▤ Memory    : ███░░░░░░░ 1.2 / 4.0 GiB (31%)
-  ◫ Disk (/)  : ██████░░░░ 11.8 / 20.0 GiB (59%)
-  ◫ /mnt/media: █████████░ 82.1 GiB free of 1.8 TiB
+  ▣ CPU       : █········· 12% of 4 cores
+  ▤ Memory    : ███······· 1.2 / 4.0 GiB (31%)
+  ◫ Disk (/)  : █████····· 11.8 / 20.0 GiB (59%)
+  ◫ /mnt/media: █████████· 82.1 GiB free of 1.8 TiB
 ```
 
 Bannarr runs on the box whose banner you want to change: a container, a virtual machine, a
@@ -58,8 +59,9 @@ live preview and an undo button.
 ## Features
 
 - **ASCII art.** Pick from a gallery (your hostname in big letters, Tux, a server rack, a
-  welcome box and more), type any text and turn it into art in dozens of fonts, or paste your
-  own.
+  welcome box and more), type any text and turn it into block letters, or paste your own.
+- **Art size.** Make block-letter art small, medium or large, or let Bannarr pick the biggest
+  size that fits a normal terminal.
 - **Colors.** Color the art with a single color or a gradient such as ocean, fire, sunset or
   rainbow.
 - **19 system details.** Hostname, IP address, OS, uptime, CPU, memory, disk space and more.
@@ -67,9 +69,8 @@ live preview and an undo button.
 - **Every disk.** List each attached drive with how much space is free, or pick just the ones
   you care about.
 - **Usage bars.** CPU, memory and disk can show a bar that turns from green to yellow to red as
-  they fill up.
-- **Icons.** Simple symbols that work everywhere, emoji, or
-  [Nerd Font](https://www.nerdfonts.com/) icons if your terminal uses one.
+  they fill up. Turn the bars on or off for all of them, or one at a time.
+- **Icons.** Simple symbols or emoji, both of which work in any terminal.
 - **Your own text.** Add lines like a welcome message or a warning anywhere in the banner.
 - **Layouts.** One detail per line, two columns, or everything on a single line.
 - **Live preview.** See exactly what your login will look like, with real values from the
@@ -85,12 +86,11 @@ live preview and an undo button.
 
 - **A Linux box you can log in to as root.** Debian, Ubuntu, Alpine, Fedora, Rocky, Alma,
   Arch and openSUSE are all supported.
-- **bash and curl.** Most systems already have them. On Alpine, run `apk add bash curl`
-  first.
+- **Nothing to install.** Bannarr needs only bash and curl, which almost every system already
+  has, community-scripts containers included. A bare-bones Alpine image may need
+  `apk add bash curl` first.
 - **The banner appears for bash and sh users.** People whose login shell is zsh or fish won't
   see it.
-- **Optional:** a [Nerd Font](https://www.nerdfonts.com/) in your terminal, if you want the
-  Nerd Font icons.
 
 ## Install
 
@@ -125,8 +125,8 @@ time you log in.
 
 | Key | What it opens |
 | :-: | ------------- |
-| **1** | Banner art: choose, generate, paste or color the ASCII art |
-| **2** | Info items: choose which system details to show, and how |
+| **1** | Banner art: choose, generate, paste, resize or color the ASCII art |
+| **2** | Info items: choose which system details to show, and how, including each one's bar |
 | **3** | Static text: add your own lines |
 | **4** | Layout & style: layout, spacing, usage bars and icons |
 | **5** | Colors |
@@ -156,15 +156,18 @@ You can also skip the menus and do common jobs directly:
 
 ### On community-scripts containers
 
-Containers made with community-scripts come with their own banner. When you save, Bannarr
-switches that banner off so you don't see two, without deleting or changing it. Going back
-to the original (**r** in the menu, or `--revert`) switches it back on.
+Containers made with community-scripts come with their own banner:
+- **First run:** Bannarr finds that banner's title (such as "Plex LXC Container") and its
+  community-scripts credit line, and asks whether to keep each one in your new banner.
+- **Saving:** Bannarr switches the original banner off so you don't see two, without deleting
+  or changing it.
+- **Going back** to the original (**r** in the menu, or `--revert`) switches it on again.
 
 ## Privacy
 
 Bannarr has no server, no analytics and no tracking. Everything happens on your machine, and
 your designs are stored there. The only time it goes online is to download itself from GitHub
-when you run the install command, or to install the optional figlet fonts if you say yes.
+when you run the install command. It never installs anything.
 
 ## Limitations
 

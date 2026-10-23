@@ -36,6 +36,10 @@ language for non-developers.
 
 ## Rules
 
+- **Zero dependencies.** Bannarr must work on a stock box with nothing added: never install
+  packages, never require special fonts (no Nerd Fonts), and never assume a UTF-8 locale. No
+  `${s:i:1}` on strings that may hold multi-byte characters. See "Zero dependencies" in
+  `docs/DEVELOPMENT.md`.
 - **The renderer must stay POSIX `sh`:** no arrays, `[[ ]]`, `local`, `$'...'` or `${var^^}`.
   Write unusual glyphs as `printf` octal escapes.
 - **Never edit or delete a file Bannarr didn't create.** Switch it off with `park` and restore

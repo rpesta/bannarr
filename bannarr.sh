@@ -26,6 +26,7 @@ msg_ok() { printf ' %s✔%s %s\n' "$GN" "$CL" "$1"; }
 msg_error() { printf ' %s✖%s %s\n' "$RD" "$CL" "$1" >&2; }
 
 set -o pipefail
+shopt -s extglob
 
 # /etc/profile runs every /etc/profile.d/*.sh at login. Bannarr owns BANNER_FILE; the
 # community-scripts banner (CS_FILE) is switched off by renaming it to CS_DISABLED, which no
@@ -50,7 +51,8 @@ DIRTY=0
 ART_LINES=()
 
 ALL_ITEMS=(hostname fqdn ip ipv6 os kernel arch uptime load cpu cpu_model cores memory swap disk mounts procs users date)
-ICON_SETS=(off unicode emoji nerd)
+ICON_SETS=(off unicode emoji)
+BAR_ITEMS=(cpu memory swap disk mounts) # items that can show a usage bar
 COLOR_NAMES=(none black red green yellow blue magenta cyan white gray bred bgreen byellow bblue bmagenta bcyan bwhite)
 GRAD_NAMES=(ocean fire forest sunset purple rainbow mono)
 declare -A GRADIENTS=(
@@ -125,7 +127,8 @@ _bn_label() {
   esac
 }
 # Set _ic to the icon for an item key: per-item override BN_I_<key>, else the glyph
-# from the active set in BN_ICONS (off | unicode | emoji | nerd). Empty means no icon.
+# from the active set in BN_ICONS (off | unicode | emoji). Empty means no icon. Both sets
+# render in stock terminals and fonts, so the banner needs nothing installed.
 _bn_icon() {
   eval "_ic=\${BN_I_$1:-}"
   [ -n "$_ic" ] && return 0
@@ -142,16 +145,6 @@ _bn_icon() {
         arch) _ic='🧩' ;; uptime) _ic='⏳' ;; load) _ic='📈' ;; cpu) _ic='🧠' ;; cpu_model) _ic='🔧' ;;
         cores) _ic='🔢' ;; memory) _ic='💾' ;; swap) _ic='🔁' ;; disk) _ic='💽' ;; mounts) _ic='📂' ;;
         procs) _ic='📋' ;; users) _ic='👥' ;; date) _ic='📅' ;;
-      esac ;;
-    nerd)
-      case "$1" in
-        # Nerd Font glyphs as UTF-8 octal bytes so they survive editors and copy/paste
-        hostname) _ic=$(printf '\357\210\263') ;; fqdn|ip|ipv6) _ic=$(printf '\357\202\254') ;;
-        os) _ic=$(printf '\357\205\274') ;; kernel) _ic=$(printf '\357\202\205') ;; arch) _ic=$(printf '\357\206\262') ;;
-        uptime) _ic=$(printf '\357\200\227') ;; load) _ic=$(printf '\357\203\244') ;;
-        cpu|cpu_model|cores) _ic=$(printf '\357\213\233') ;; memory) _ic=$(printf '\363\260\215\233') ;;
-        swap) _ic=$(printf '\357\203\254') ;; disk) _ic=$(printf '\357\202\240') ;; mounts) _ic=$(printf '\357\201\274') ;;
-        procs) _ic=$(printf '\357\200\272') ;; users) _ic=$(printf '\357\203\200') ;; date) _ic=$(printf '\357\201\263') ;;
       esac ;;
   esac
 }
@@ -212,7 +205,7 @@ _bn_val() {
       set -- $(df -Pk / 2>/dev/null | awk "$_bn_dfc"'{printf "%s %.1f %.1f",p,u/1048576,t/1048576}')
       [ $# -eq 3 ] && { _p=$1; _v="$2 / $3 GiB ($1%)"; } ;;
     mnt:*)
-      _x=$(df -Pk "${1#mnt:}" 2>/dev/null | awk 'function h(k){return k>=1048576?sprintf("%.1f GiB",k/1048576):sprintf("%.0f MiB",k/1024)}
+      _x=$(df -Pk "${1#mnt:}" 2>/dev/null | awk 'function h(k){return k>=1073741824?sprintf("%.1f TiB",k/1073741824):k>=1048576?sprintf("%.1f GiB",k/1048576):sprintf("%.0f MiB",k/1024)}
         '"$_bn_dfc"'{print p"|"h(a)"|"h(t)}')
       if [ -n "$_x" ]; then _p=${_x%%|*}; _x=${_x#*|}; _v="${_x%%|*} free of ${_x#*|}"; fi ;;
     procs) _v=$(ls -d /proc/[0-9]* 2>/dev/null | wc -l | tr -d ' ') ;;
@@ -222,34 +215,38 @@ _bn_val() {
   case "$_p" in ''|*[!0-9]*) _p='' ;; esac
   [ -n "$_v" ] || _v='n/a'
 }
-# Set _bs to a usage bar for percentage $1, BN_BAR_W cells of BN_BAR_FULL/BN_BAR_EMPTY.
+# Set _bf and _be to the filled and empty parts of a usage bar for percentage $1: BN_BAR_W
+# cells of BN_BAR_FULL then BN_BAR_EMPTY. They are colored separately so the track is dim.
 _bn_bar() {
   _f=$(($1 * BN_BAR_W / 100))
   [ "$_f" -gt "$BN_BAR_W" ] && _f=$BN_BAR_W
-  _bs=''; _i=0
+  _bf=''; _be=''; _i=0
   while [ "$_i" -lt "$BN_BAR_W" ]; do
-    if [ "$_i" -lt "$_f" ]; then _bs="$_bs$BN_BAR_FULL"; else _bs="$_bs$BN_BAR_EMPTY"; fi
+    if [ "$_i" -lt "$_f" ]; then _bf="$_bf$BN_BAR_FULL"; else _be="$_be$BN_BAR_EMPTY"; fi
     _i=$((_i + 1))
   done
 }
 # Build one formatted item into _cell: icon, padded label, separator, bar, value.
 # $1 = item key (or mnt:<path>); $2 = list | pad (columns layout) | inline.
 # Per-item value color BN_VC_<key> wins; mounts share the "mounts" key for color/icon.
+# A bar shows when the item has a usage percentage and BN_B_<key> (or, if unset, BN_BAR)
+# is "yes", so bars can be switched on or off for all items or one at a time.
 _bn_cell() {
   case "$1" in mnt:*) _ck=mounts ;; *) _ck=$1 ;; esac
   _bn_val "$1"; _bn_label "$1"; _bn_icon "$_ck"
-  eval "_vc=\${BN_VC_$_ck:-}"
+  eval "_vc=\${BN_VC_$_ck:-}; _bb=\${BN_B_$_ck:-\$BN_BAR}"
   _vcc=$_CV; [ -n "$_vc" ] && _vcc=$(_bn_c "$_vc")
   _bar=''
-  if [ "$BN_BAR" = yes ]; then
-    if [ -n "$_p" ]; then
-      _bn_bar "$_p"
-      if [ "$BN_THRESH" = yes ]; then _bar="$(_bn_thc "$_p")$_bs$_R "; else _bar="$_vcc$_bs$_R "; fi
-    elif [ "$2" = pad ]; then
-      _bar=$(printf "%$((BN_BAR_W + 1))s" '')
-    fi
+  if [ "$_bb" = yes ] && [ -n "$_p" ]; then
+    _bn_bar "$_p"
+    if [ "$BN_THRESH" = yes ]; then _bfc=$(_bn_thc "$_p"); else _bfc=$_vcc; fi
+    _bar="$_bfc$_bf$_R$_CS$_be$_R "
   elif [ -n "$_p" ] && [ "$BN_THRESH" = yes ] && [ -z "$_vc" ]; then
     _vcc=$(_bn_thc "$_p")
+  fi
+  # Keep the columns layout aligned when some rows have a bar and this one doesn't
+  if [ -z "$_bar" ] && [ "$2" = pad ] && [ "$BN_BAR" = yes ]; then
+    _bar=$(printf "%$((BN_BAR_W + 1))s" '')
   fi
   if [ "$2" = inline ]; then _lt=$_l; else _lt=$(printf "%-${BN_LABEL_W}s" "$_l"); fi
   if [ "$2" = pad ]; then _vt=$(printf "%-${BN_VALUE_W}s" "$_v"); else _vt=$_v; fi
@@ -324,22 +321,53 @@ hn() { cat /proc/sys/kernel/hostname 2>/dev/null || hostname 2>/dev/null || echo
 # either active or already disabled by Bannarr).
 is_cs_box() { [[ -f $CS_FILE || -f $CS_DISABLED ]]; }
 
-# Populate the BN_* settings with the out-of-the-box banner. The community-scripts credit
-# line is only included on community-scripts boxes.
+# Print the title line ("Plex LXC Container") and the credit line ("🌐 Provided by:
+# community-scripts ORG | GitHub: ...") from the community-scripts banner, one per line, in
+# their original order. Each is taken exactly as written there, with only the echo wrapper,
+# color codes and extra spaces removed. Prints nothing if the banner or the lines are missing.
+cs_banner_lines() {
+  local f line
+  for f in "$CS_FILE" "$CS_DISABLED" ''; do [[ -f $f ]] && break; done
+  [[ -n $f ]] || return 0
+  while IFS= read -r line; do
+    [[ $line == *"LXC Container"* || $line == *"Provided by:"* ]] || continue
+    line=${line#*echo -e \"}
+    line=${line%\"*}
+    line=${line//$'\e['*([0-9;])m/}
+    line=${line//\\033\[*([0-9;])m/}
+    line=${line//\\e\[*([0-9;])m/}
+    line=${line//+([[:space:]])/ }
+    line=${line# } line=${line% }
+    [[ -n $line ]] && printf '%s\n' "$line"
+  done <"$f"
+}
+
+# Remove static text line $1 from the design: its text, its color and its place in BN_ITEMS.
+remove_text() {
+  unset "BN_TEXT_$1" "BN_TC_$1"
+  BN_ITEMS=$(tr ' ' '\n' <<<"$BN_ITEMS" | grep -vx "text$1" | tr '\n' ' ')
+  BN_ITEMS=${BN_ITEMS% }
+}
+
+# Populate the BN_* settings with the out-of-the-box banner. On community-scripts boxes the
+# original banner's title and credit lines come first, as static text; first_run_cs then asks
+# whether to keep them.
 set_defaults() {
-  local v
+  local v i cs_items=''
+  local -a cs_lines=()
   for v in $(compgen -v BN_); do unset "$v"; done
-  if is_cs_box; then
-    BN_ITEMS="text1 os hostname ip uptime cpu memory disk"
-    BN_TEXT_1="Provided by: community-scripts ORG | GitHub: https://github.com/community-scripts/ProxmoxVE"
-  else
-    BN_ITEMS="os hostname ip uptime cpu memory disk"
-  fi
+  is_cs_box && mapfile -t cs_lines < <(cs_banner_lines)
+  for i in "${!cs_lines[@]}"; do
+    printf -v "BN_TEXT_$((i + 1))" '%s' "${cs_lines[i]}"
+    [[ ${cs_lines[i]} == *"Provided by:"* ]] || printf -v "BN_TC_$((i + 1))" '%s' bold
+    cs_items+="text$((i + 1)) "
+  done
+  BN_ITEMS="${cs_items}os hostname ip uptime cpu memory disk"
   BN_LAYOUT=list BN_INDENT=2 BN_LABEL_W=10 BN_VALUE_W=26 BN_SEP=': '
-  BN_BAR=yes BN_BAR_W=10 BN_BAR_FULL='█' BN_BAR_EMPTY='░' BN_THRESH=yes
+  BN_BAR=yes BN_BAR_W=10 BN_BAR_FULL='█' BN_BAR_EMPTY='·' BN_THRESH=yes
   BN_C_LABEL=yellow BN_C_VALUE=bgreen BN_C_SEP=gray BN_C_TEXT=gray BN_C_ICON=cyan
   BN_ICONS=unicode BN_MOUNTS=''
-  BN_ART_COLOR=${GRADIENTS[ocean]} BN_ART_SRC=hostname
+  BN_ART_COLOR=${GRADIENTS[ocean]} BN_ART_SRC=hostname BN_ART_SIZE=auto
 }
 
 # Print every BN_* variable as sh assignments. Used for bannarr.conf and embedded at the
@@ -350,8 +378,9 @@ write_conf() {
   for v in $(compgen -v BN_); do printf '%s=%s\n' "$v" "$(sq "${!v}")"; done
 }
 
-# Load settings from bannarr.conf (or defaults) and the art from banner.txt. The
-# "hostname" art source is regenerated each load so it follows hostname changes.
+# Load settings from bannarr.conf (or defaults) and the art. Art drawn in the built-in font
+# ("hostname", or "text" from the generator) is redrawn on every load, so it follows hostname
+# changes; any other art comes from banner.txt. ART_LINES always holds the unscaled art.
 load_state() {
   local v dir=${1:-$CONF_DIR}
   if [[ -f $dir/bannarr.conf && -O $dir/bannarr.conf ]]; then
@@ -361,11 +390,12 @@ load_state() {
   else
     set_defaults
   fi
-  if [[ ${BN_ART_SRC:-} == hostname || ! -f $dir/banner.txt ]]; then
-    preset_art "${BN_ART_SRC:-hostname}"
-  else
-    mapfile -t ART_LINES <"$dir/banner.txt"
-  fi
+  ART_LINES=()
+  case ${BN_ART_SRC:-hostname} in
+    hostname) preset_art hostname ;;
+    text) block_text "${BN_ART_TEXT:-$(hn)}" ;;
+    *) [[ -f $dir/banner.txt ]] && mapfile -t ART_LINES <"$dir/banner.txt" ;;
+  esac
 }
 
 # Print the complete profile script: settings + renderer + art heredoc + call to _bn_show,
@@ -380,7 +410,7 @@ build_profile() {
   emit_renderer
   echo '_bn_art() {'
   echo "cat <<'__BANNARR_ART__'"
-  ((${#ART_LINES[@]})) && printf '%s\n' "${ART_LINES[@]}"
+  art_out
   echo '__BANNARR_ART__'
   echo '}'
   echo '_bn_show'
@@ -491,15 +521,65 @@ trim_art() {
   while ((${#ART_LINES[@]})) && [[ -z ${ART_LINES[-1]// /} ]]; do unset 'ART_LINES[-1]'; done
 }
 
-# Install packages with whichever package manager this distro has.
-pkg_install() {
-  if command -v apt-get >/dev/null; then apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "$@"
-  elif command -v dnf >/dev/null; then dnf install -y -q "$@"
-  elif command -v yum >/dev/null; then yum install -y -q "$@"
-  elif command -v apk >/dev/null; then apk add --no-cache -q "$@"
-  elif command -v pacman >/dev/null; then pacman -Sy --noconfirm --needed "$@"
-  elif command -v zypper >/dev/null; then zypper -n -q in "$@"
-  else return 1; fi
+# Convert half-block art (lines of █ ▀ ▄ and spaces only) into pixel rows of "#" and "." in
+# _PX, two per line, all the same width. Returns 1 for any other character, so figlet or
+# hand-drawn art is never mangled. It works on whole byte sequences, not single characters,
+# so it is correct without a UTF-8 locale, which minimal containers often lack.
+art_to_px() {
+  local line top bot w=0 i
+  _PX=()
+  for line in "$@"; do
+    top=${line//█/#} top=${top//▀/#} top=${top//▄/.} top=${top// /.}
+    bot=${line//█/#} bot=${bot//▄/#} bot=${bot//▀/.} bot=${bot// /.}
+    [[ $top =~ ^[#.]*$ ]] || return 1
+    _PX+=("$top" "$bot")
+  done
+  for line in "${_PX[@]}"; do ((${#line} > w)) && w=${#line}; done
+  for i in "${!_PX[@]}"; do
+    printf -v line '%-*s' "$w" "${_PX[i]}"
+    _PX[i]=${line// /.}
+  done
+}
+
+# Print the pixel rows in _PX as half-block lines, every pixel scaled to $1 x $1.
+px_to_art() {
+  local f=$1 row s t b out i j
+  local -a rows=()
+  for row in "${_PX[@]}"; do
+    s=''
+    for ((i = 0; i < ${#row}; i++)); do printf -v t '%*s' "$f" ''; s+=${t// /${row:i:1}}; done
+    for ((j = 0; j < f; j++)); do rows+=("$s"); done
+  done
+  for ((j = 0; j + 1 < ${#rows[@]}; j += 2)); do
+    t=${rows[j]} b=${rows[j + 1]} out=''
+    for ((i = 0; i < ${#t}; i++)); do
+      case ${t:i:1}${b:i:1} in '##') out+='█' ;; '#.') out+='▀' ;; '.#') out+='▄' ;; *) out+=' ' ;; esac
+    done
+    printf '%s\n' "${out%"${out##*[! ]}"}"
+  done
+}
+
+# Set _AS to the scale the art is drawn at: BN_ART_SIZE 1-3, or "auto", which doubles the art
+# when the result still fits 78 columns and 8 rows and leaves it at 1x otherwise. _AS is 0
+# when the art isn't half-block art and can't be scaled (figlet, pasted ASCII, box drawings).
+art_scale() {
+  _AS=0
+  art_to_px "${ART_LINES[@]}" || return 0
+  local w=${#_PX[0]} h=$((${#_PX[@]} / 2))
+  case ${BN_ART_SIZE:-auto} in
+    [123]) _AS=$BN_ART_SIZE ;;
+    *) if ((w * 2 <= 78 && h * 2 <= 8)); then _AS=2; else _AS=1; fi ;;
+  esac
+}
+
+# Print the art as the banner shows it: ART_LINES scaled by art_scale, or as-is if unscalable.
+art_out() {
+  art_scale
+  if ((_AS > 1)); then
+    px_to_art "$_AS"
+  elif ((${#ART_LINES[@]})); then
+    printf '%s\n' "${ART_LINES[@]}"
+  fi
 }
 
 # ---------------------------------------------------------------------------
@@ -610,13 +690,22 @@ pick_color() { # $1 var name, $2 "grad" to offer gradients
 # Menus
 # ---------------------------------------------------------------------------
 art_menu() {
-  local r
+  local r size
   while true; do
     draw "Banner art"
+    art_scale
+    if ((_AS == 0)); then
+      size="${BN_ART_SIZE:-auto} (only block-letter art can be resized)"
+    elif [[ ${BN_ART_SIZE:-auto} == auto ]]; then
+      size="auto (${_AS}x)"
+    else
+      size="${BN_ART_SIZE}x"
+    fi
     cat <<EOF
-  1) Preset gallery              4) Edit in text editor
-  2) Generate from text          5) Remove art
-  3) Paste your own              6) Art color / gradient
+  1) Preset gallery              5) Remove art
+  2) Generate from text          6) Art color / gradient
+  3) Paste your own              7) Size: $size
+  4) Edit in text editor
   b) Back
 EOF
     read -rp "  › " r
@@ -627,6 +716,10 @@ EOF
       4) edit_art ;;
       5) ART_LINES=() BN_ART_SRC=custom DIRTY=1 ;;
       6) pick_color BN_ART_COLOR grad ;;
+      7)
+        case ${BN_ART_SIZE:-auto} in auto) BN_ART_SIZE=1 ;; 1) BN_ART_SIZE=2 ;; 2) BN_ART_SIZE=3 ;; *) BN_ART_SIZE=auto ;; esac
+        DIRTY=1
+        ;;
       b | B | '') return ;;
     esac
   done
@@ -648,27 +741,21 @@ preset_menu() {
   done
 }
 
-# Text-to-ASCII generator. Uses the built-in block font, or every figlet font when
-# figlet is installed (offers to install it). Loops so fonts can be compared live.
+# Text-to-ASCII generator. Uses the built-in block font, which can be resized (art menu 7).
+# If figlet already happens to be installed its fonts are offered too; Bannarr never installs
+# anything. Loops so fonts can be compared live.
 generate_menu() {
   local text r i fdir
   local -a fonts=(builtin)
   draw "Generate ASCII art from text"
   read -rp "  Text [$(hn)]: " text
   text=${text:-$(hn)}
-  if ! command -v figlet >/dev/null; then
-    read -rp "  figlet adds dozens of fonts. Install it now? [y/N]: " r
-    if [[ $r =~ ^[yY] ]]; then
-      msg_info "Installing figlet"
-      pkg_install figlet >/dev/null 2>&1 && msg_ok "Installed figlet" || { msg_error "Could not install figlet (on RHEL-likes it needs EPEL) - using built-in font"; sleep 2; }
-    fi
-  fi
   if command -v figlet >/dev/null; then
     fdir=$(figlet -I2 2>/dev/null)
     for r in "$fdir"/*.flf; do [[ -f $r ]] && fonts+=("$(basename "$r" .flf)"); done
   fi
   block_text "$text"
-  BN_ART_SRC=custom DIRTY=1
+  BN_ART_SRC=text BN_ART_TEXT=$text DIRTY=1
   ((${#fonts[@]} > 1)) || return
   while true; do
     draw "Pick a font - the preview updates as you go"
@@ -681,9 +768,11 @@ generate_menu() {
     [[ $r =~ ^[0-9]+$ ]] && ((r >= 1 && r <= ${#fonts[@]})) || return
     if ((r == 1)); then
       block_text "$text"
+      BN_ART_SRC=text
     else
       mapfile -t ART_LINES < <(figlet -w "$(tput cols 2>/dev/null || echo 80)" -f "${fonts[r - 1]}" "$text")
       trim_art
+      BN_ART_SRC=custom
     fi
   done
 }
@@ -723,7 +812,7 @@ edit_art() {
 # Info items submenu: toggle, reorder, rename, recolor and set icons per item; "m" opens
 # the mounts picker. Enabled items are listed first, in display order.
 items_menu() {
-  local cmd n k i lbl vc
+  local cmd n k i lbl vc bar bar_var
   local -a items rows
   while true; do
     read -ra items <<<"$BN_ITEMS"
@@ -737,11 +826,16 @@ items_menu() {
       _bn_icon "$k"
       vc_var="BN_VC_$k"
       vc=${!vc_var:-}
+      bar=''
+      if [[ " ${BAR_ITEMS[*]} " == *" $k "* ]]; then
+        bar_var="BN_B_$k"
+        if [[ ${!bar_var:-$BN_BAR} == yes ]]; then bar="bar on "; else bar="${DIM}bar off${CL}"; fi
+      fi
       if [[ " $BN_ITEMS " == *" $k "* ]]; then mark="${GN}[x]${CL}"; else mark="${DIM}[ ]${CL}"; fi
-      printf '  %2d) %s %-2s %-10s %-12s %s\n' $((i + 1)) "$mark" "$_ic" "$k" "$_l" "${vc:+$(swatch "$vc") $vc}"
+      printf '  %2d) %s %-2s %-10s %-12s %-7s %s\n' $((i + 1)) "$mark" "$_ic" "$k" "$_l" "$bar" "${vc:+$(swatch "$vc") $vc}"
     done
-    printf '\n  %s<n>%s toggle   %su/d <n>%s move   %sl <n>%s rename   %sc <n>%s color   %si <n>%s icon   %sm%s pick mounts (%s)   %sb%s back\n' \
-      "$BOLD" "$CL" "$BOLD" "$CL" "$BOLD" "$CL" "$BOLD" "$CL" "$BOLD" "$CL" "$BOLD" "$CL" "${BN_MOUNTS:-auto}" "$BOLD" "$CL"
+    printf '\n  %s<n>%s toggle   %su/d <n>%s move   %sl <n>%s rename   %sc <n>%s color   %si <n>%s icon   %sg <n>%s bar on/off   %sm%s pick mounts (%s)   %sb%s back\n' \
+      "$BOLD" "$CL" "$BOLD" "$CL" "$BOLD" "$CL" "$BOLD" "$CL" "$BOLD" "$CL" "$BOLD" "$CL" "$BOLD" "$CL" "${BN_MOUNTS:-auto}" "$BOLD" "$CL"
     read -rp "  › " cmd n
     if [[ $cmd =~ ^[0-9]+$ ]]; then
       n=$cmd cmd=t
@@ -774,6 +868,16 @@ items_menu() {
         _bn_icon "$k"
         read -rp "  Icon for $k [${_ic:-none}] (any symbol/emoji, - to reset): " lbl
         if [[ $lbl == - ]]; then unset "BN_I_$k"; elif [[ -n $lbl ]]; then printf -v "BN_I_$k" '%s' "$lbl"; fi
+        DIRTY=1
+        ;;
+      g)
+        if [[ " ${BAR_ITEMS[*]} " != *" $k "* ]]; then
+          msg_error "$k has no usage bar - bars are for ${BAR_ITEMS[*]}"
+          sleep 2
+          continue
+        fi
+        bar_var="BN_B_$k"
+        if [[ ${!bar_var:-$BN_BAR} == yes ]]; then printf -v "$bar_var" no; else printf -v "$bar_var" yes; fi
         DIRTY=1
         ;;
     esac
@@ -861,9 +965,7 @@ text_menu() {
         [[ -n $t ]] && printf -v "$var" '%s' "$t" && DIRTY=1
         ;;
       x)
-        unset "BN_TEXT_$n" "BN_TC_$n"
-        BN_ITEMS=$(tr ' ' '\n' <<<"$BN_ITEMS" | grep -vx "text$n" | tr '\n' ' ')
-        BN_ITEMS=${BN_ITEMS% }
+        remove_text "$n"
         DIRTY=1
         ;;
       t)
@@ -884,7 +986,9 @@ text_menu() {
 # Layout & style submenu (layout, widths, separator, bars, threshold colors, icon set).
 style_menu() {
   local r
-  local -a layouts=(list columns inline) bars=('█░' '#-' '■□' '=.' '▰▱')
+  # Bar presets as "full|empty" pairs, split on "|" so multi-byte characters survive
+  # without a UTF-8 locale. All of them render in stock terminal fonts.
+  local -a layouts=(list columns inline) bars=('█|·' '█|░' '━|─' '#|-' '=|.')
   while true; do
     draw "Layout & style"
     printf '  1) Layout            %s\n' "$BN_LAYOUT"
@@ -892,11 +996,11 @@ style_menu() {
     printf '  3) Label width       %s\n' "$BN_LABEL_W"
     printf '  4) Column width      %s   (columns layout)\n' "$BN_VALUE_W"
     printf "  5) Separator         '%s'\n" "$BN_SEP"
-    printf '  6) Usage bars        %s\n' "$BN_BAR"
+    printf '  6) Usage bars        %s   (all items; switch single items in Info items with g)\n' "$BN_BAR"
     printf '  7) Bar width         %s\n' "$BN_BAR_W"
     printf '  8) Bar characters    %s%s\n' "$BN_BAR_FULL" "$BN_BAR_EMPTY"
     printf '  9) Load colors       %s   (green / yellow / red by usage)\n' "$BN_THRESH"
-    printf '  i) Icons             %s   (nerd needs a Nerd Font in your SSH client)\n' "$BN_ICONS"
+    printf '  i) Icons             %s   (off / unicode / emoji)\n' "$BN_ICONS"
     echo "  b) Back"
     read -rp "  › " r
     case $r in
@@ -911,9 +1015,9 @@ style_menu() {
       6) [[ $BN_BAR == yes ]] && BN_BAR=no || BN_BAR=yes; DIRTY=1 ;;
       7) ask_num "Bar width" BN_BAR_W 3 40 ;;
       8)
-        for i in "${!bars[@]}"; do [[ ${bars[i]} == "$BN_BAR_FULL$BN_BAR_EMPTY" ]] && break; done
+        for i in "${!bars[@]}"; do [[ ${bars[i]} == "$BN_BAR_FULL|$BN_BAR_EMPTY" ]] && break; done
         r=${bars[(i + 1) % ${#bars[@]}]}
-        BN_BAR_FULL=${r:0:1} BN_BAR_EMPTY=${r:1:1} DIRTY=1
+        BN_BAR_FULL=${r%%|*} BN_BAR_EMPTY=${r#*|} DIRTY=1
         ;;
       9) [[ $BN_THRESH == yes ]] && BN_THRESH=no || BN_THRESH=yes; DIRTY=1 ;;
       i | I)
@@ -1318,6 +1422,27 @@ need_root() {
   fi
 }
 
+# First run on a community-scripts container (no saved design yet): set_defaults has put the
+# original banner's title and credit lines at the top of the design, and the preview shows
+# them. Ask whether to keep each one; both default to yes.
+first_run_cs() {
+  local n var r
+  [[ -f $CONF_FILE ]] && return 0
+  is_cs_box || return 0
+  draw "This container was set up by community-scripts"
+  echo "  Its original banner has these lines. You can keep them in your new banner."
+  echo
+  for n in $(text_ids); do
+    var="BN_TEXT_$n"
+    if [[ ${!var} == *"Provided by:"* ]]; then
+      read -rp "  Keep the community-scripts credit line? [Y/n]: " r
+    else
+      read -rp "  Keep the title \"${!var}\"? [Y/n]: " r
+    fi
+    [[ $r =~ ^[nN] ]] && remove_text "$n"
+  done
+}
+
 # Parse arguments, then start the interactive editor.
 main() {
   case "${1:-}" in
@@ -1341,6 +1466,7 @@ main() {
   esac
   need_root
   load_state
+  first_run_cs
   main_menu
 }
 
