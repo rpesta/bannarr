@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-113.5 -763 782 782" width="512" height="512" role="img" aria-labelledby="title">
+  <title id="title">Bannarr</title>
+  <!-- Light variant for dark backgrounds (dashboard-icons "-light" convention): a white "b" on
+       a transparent, square canvas. The "b" is from Null Pointer by Tom Murphy 7 (Divide By
+       Zero, fonts.tom7.com), converted to outlines. -->
+  <path fill="#ffffff" fill-rule="evenodd" d="M507-530L507-21L48-21L48-723L160-723L160-530L507-530ZM160-269L417-269L417-433L160-433L160-269Z"/>
+</svg>

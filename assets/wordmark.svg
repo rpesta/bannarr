@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="8 -764 3797 783" width="485" height="100" role="img" aria-labelledby="title">
+  <title id="title">bannarr</title>
+  <!-- "bannarr" in Null Pointer by Tom Murphy 7 (Divide By Zero, fonts.tom7.com), converted to
+       outlines. Transparent background, same gradient as logo.svg. -->
+  <defs>
+    <linearGradient id="brand" gradientUnits="userSpaceOnUse" x1="48" y1="-724" x2="3765" y2="-21">
+      <stop offset="0" stop-color="#5f5fd7"/>
+      <stop offset="0.5" stop-color="#af5fd7"/>
+      <stop offset="1" stop-color="#d70087"/>
+    </linearGradient>
+  </defs>
+  <path fill="url(#brand)" fill-rule="evenodd" d="M507-530L507-21L48-21L48-723L160-723L160-530L507-530ZM160-269L417-269L417-433L160-433L160-269ZM1047-723L1047-24L588-24L588-530L935-530L935-625L588-625L588-723L1047-723ZM678-269L935-269L935-433L678-433L678-269ZM1584-655L1584-30L1483-30L1483-399L1235-399L1235-27L1125-27L1125-724L1229-724L1229-655L1584-655ZM2131-655L2131-30L2030-30L2030-399L1782-399L1782-27L1672-27L1672-724L1776-724L1776-655L2131-655ZM2681-723L2681-24L2222-24L2222-530L2569-530L2569-625L2222-625L2222-723L2681-723ZM2312-269L2569-269L2569-433L2312-433L2312-269ZM3218-655L3218-312L3117-312L3117-399L2869-399L2869-27L2759-27L2759-724L2863-724L2863-655L3218-655ZM3765-655L3765-312L3664-312L3664-399L3416-399L3416-27L3306-27L3306-724L3410-724L3410-655L3765-655Z"/>
+</svg>

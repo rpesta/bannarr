@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="8 -763 539 782" width="276" height="400" role="img" aria-labelledby="title">
+  <title id="title">Bannarr</title>
+  <!-- The "b" from Null Pointer by Tom Murphy 7 (Divide By Zero, fonts.tom7.com), converted to
+       outlines. Transparent background; the gradient uses the terminal wordmark's mid-tone
+       colors (xterm 62, 134, 162), each with at least 3.9:1 contrast on white and on black. -->
+  <defs>
+    <linearGradient id="brand" gradientUnits="userSpaceOnUse" x1="48" y1="-723" x2="507" y2="-21">
+      <stop offset="0" stop-color="#5f5fd7"/>
+      <stop offset="0.5" stop-color="#af5fd7"/>
+      <stop offset="1" stop-color="#d70087"/>
+    </linearGradient>
+  </defs>
+  <path fill="url(#brand)" fill-rule="evenodd" d="M507-530L507-21L48-21L48-723L160-723L160-530L507-530ZM160-269L417-269L417-433L160-433L160-269Z"/>
+</svg>
