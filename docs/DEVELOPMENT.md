@@ -183,7 +183,7 @@ All settings live in `bannarr.conf` and are embedded in the profile script.
 | `BN_LAYOUT` | `list` | `list`, `columns` or `inline` |
 | `BN_INDENT` | `2` | Spaces before every line |
 | `BN_LABEL_W` | `10` | Label column width (`list`/`columns`) |
-| `BN_VALUE_W` | `26` | Value width in `columns` layout |
+| `BN_VALUE_W` | `26` | No longer used: `_bn_colw` sizes the `columns` layout's left column to the widest cell (bar + value + label overflow). Still accepted in saved designs and share codes |
 | `BN_SEP` | `: ` | Text between label and value |
 | `BN_BAR` | `yes` | Show usage bars (all items; `BN_B_<key>` overrides one item) |
 | `BN_B_<key>` | *(empty = follow `BN_BAR`)* | `yes`/`no`: usage bar for one item (`cpu`, `memory`, `swap`, `disk`, `mounts`) |
@@ -192,7 +192,7 @@ All settings live in `bannarr.conf` and are embedded in the profile script.
 | `BN_THRESH` | `yes` | Color bar fills green / yellow (60%+) / red (85%+) by usage. Without a bar, the value keeps `BN_C_VALUE` and turns yellow or red only at 60%+, so switching a bar off never changes normal text colors |
 | `BN_ICONS` | `unicode` | Icon set: `off`, `unicode` (code page 437 symbols only), `emoji` |
 | `BN_MOUNTS` | *(empty = auto)* | `\|`-separated mount points for the `mounts` item |
-| `BN_ART_COLOR` | ocean gradient | One color, or a space-separated list cycled per art line |
+| `BN_ART_COLOR` | ocean gradient | One color, or a space-separated list spread over the art's lines: line `i` of `n` gets color `1 + i*(m-1)/(n-1)` of `m`, so it always runs first to last. `GRADIENTS` holds 18 named lists |
 | `BN_ART_SRC` | `hostname` | `hostname` or `text` (built-in font, redrawn on every load) or `custom` (from `banner.txt`) |
 | `BN_ART_TEXT` | *(empty)* | The text drawn when `BN_ART_SRC=text` |
 | `BN_ART_SIZE` | `auto` | `1`–`3` scales block-letter art. `auto` = 2x if that fits 78 columns × 6 rows, else 1x, so the 4-row built-in font stays at 1x and only small art is doubled. Art with other characters (figlet, Tux) is never scaled |
@@ -217,6 +217,7 @@ All settings live in `bannarr.conf` and are embedded in the profile script.
 | `_bn_cell` | Format icon + label + separator + bar + value |
 | `_bn_val` | Collect an item's live value (`_v`) and usage percent (`_p`) |
 | `_bn_label` / `_bn_icon` | Resolve label / icon (override → default) |
+| `_bn_colw` / `_bn_cellw` | Columns layout: measure every cell first, so the left column is padded to the widest (CPU is sampled once and reused) |
 | `_bn_bar` | Build a usage bar |
 | `_bn_mounts_all` / `_bn_mounts` | Detect mounts / choose which to show |
 | `_bn_c` / `_bn_thc` | Color spec → ANSI escape / usage → threshold color |

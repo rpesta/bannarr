@@ -20,7 +20,11 @@ special handling for containers made with community-scripts.
 - **ASCII art.** A preset gallery (hostname in block letters, the Bannarr wordmark, Tux, a
   server rack, a welcome box, a divider line), a text-to-ASCII generator with a built-in block
   font (plus figlet's fonts if figlet is already installed), pasting, and editing in `$EDITOR`.
-  Art can be one color or a per-line gradient.
+  Art can be one color or one of 18 gradients (ocean, fire, forest, sunset, purple, rainbow,
+  mono, aurora, candy, lava, ice, mint, peach, neon, dusk, matrix, gold, steel) or a custom
+  color list. Each is spread over the art's lines from first color to last.
+- **Columns layout.** Two items per row. The left column is sized to its longest value, so
+  long values like OS names or CPU models don't push the right column out of line.
 - **Built-in font.** A readable 5×7 pixel font, 4 rows tall, for the hostname and the text
   generator.
 - **Art size.** Block-letter art can be drawn at 1×, 2× or 3×. The default, `auto`, doubles

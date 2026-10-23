@@ -25,7 +25,8 @@ APP_TYPE="addon"
 # always get real escape bytes. Notices use msg_warn: in community-scripts, msg_info starts a
 # progress spinner that only msg_ok stops.
 BOLD=$'\e[1m' DIM=$'\e[2m' CL=$'\e[0m' RD=$'\e[31m' GN=$'\e[32m' YW=$'\e[33m' BL=$'\e[36m'
-REV=$'\e[7m' # reverse video: the highlighted row in menus
+REV=$'\e[7m'          # reverse video: the highlighted row in menus
+ALERT=$'\e[1;97;41m'  # bold white on red: alert headings, written as "! ..."
 msg_ok() { printf ' %s✔%s %s\n' "$GN" "$CL" "$1"; }
 msg_warn() { printf ' %s!%s %s\n' "$YW" "$CL" "$1"; }
 msg_error() { printf ' %s✖%s %s\n' "$RD" "$CL" "$1" >&2; }
@@ -69,7 +70,9 @@ ALL_ITEMS=(hostname fqdn ip ipv6 os kernel arch uptime load cpu cpu_model cores 
 ICON_SETS=(off unicode emoji)
 BAR_ITEMS=(cpu memory swap disk mounts) # items that can show a usage bar
 COLOR_NAMES=(none black red green yellow blue magenta cyan white gray bred bgreen byellow bblue bmagenta bcyan bwhite)
-GRAD_NAMES=(ocean fire forest sunset purple rainbow mono)
+# Art gradients as xterm-256 color lists, first line to last. The banner spreads a list over
+# however many lines the art has, so short and long lists both reach their last color.
+GRAD_NAMES=(ocean fire forest sunset purple rainbow mono aurora candy lava ice mint peach neon dusk matrix gold steel)
 declare -A GRADIENTS=(
   [ocean]="27 33 39 45 51"
   [fire]="196 202 208 214 220"
@@ -78,6 +81,17 @@ declare -A GRADIENTS=(
   [purple]="54 91 128 165 201"
   [rainbow]="196 208 226 46 51 21 129"
   [mono]="255 252 249 246 243 240"
+  [aurora]="48 49 50 51 45 39 33"
+  [candy]="219 213 207 201 165 129"
+  [lava]="88 124 160 196 202 208 214"
+  [ice]="255 195 159 123 87 51"
+  [mint]="158 157 121 85 49 43"
+  [peach]="224 223 217 216 210 209"
+  [neon]="201 165 129 93 57 63 69 75 81 87"
+  [dusk]="214 209 204 169 134 99 63"
+  [matrix]="22 28 34 40 46 82 118"
+  [gold]="94 136 172 178 214 220 226"
+  [steel]="60 66 67 68 74 110 146"
 )
 PRESETS=(hostname bannarr tux server welcome rule none)
 
@@ -203,10 +217,14 @@ _bn_val() {
     cores) _v=$(grep -c '^processor' /proc/cpuinfo 2>/dev/null) ;;
     cpu_model) _v=$(awk -F': *' '/^(model name|Hardware|cpu model)/{print $2;exit}' /proc/cpuinfo 2>/dev/null) ;;
     cpu)
-      _a=$(awk '/^cpu /{print $2+$3+$4+$5+$6+$7+$8, $5+$6}' /proc/stat 2>/dev/null)
-      sleep 0.2 2>/dev/null || sleep 1
-      _b=$(awk '/^cpu /{print $2+$3+$4+$5+$6+$7+$8, $5+$6}' /proc/stat 2>/dev/null)
-      _p=$(echo "$_a $_b" | awk 'NF==4{dt=$3-$1;di=$4-$2;printf "%d",(dt>0?(dt-di)*100/dt:0)}')
+      # Sampled once per banner: the columns layout reads every value twice (_bn_colw)
+      if [ -z "${_bn_cpu_p+x}" ]; then
+        _a=$(awk '/^cpu /{print $2+$3+$4+$5+$6+$7+$8, $5+$6}' /proc/stat 2>/dev/null)
+        sleep 0.2 2>/dev/null || sleep 1
+        _b=$(awk '/^cpu /{print $2+$3+$4+$5+$6+$7+$8, $5+$6}' /proc/stat 2>/dev/null)
+        _bn_cpu_p=$(echo "$_a $_b" | awk 'NF==4{dt=$3-$1;di=$4-$2;printf "%d",(dt>0?(dt-di)*100/dt:0)}')
+      fi
+      _p=$_bn_cpu_p
       _n=$(grep -c '^processor' /proc/cpuinfo 2>/dev/null)
       if [ "$_n" = 1 ]; then _u=core; else _u=cores; fi
       [ -n "$_p" ] && _v="$_p% of $_n $_u" ;;
@@ -262,12 +280,14 @@ _bn_cell() {
   elif [ -n "$_p" ] && [ "$_p" -ge 60 ] && [ "$BN_THRESH" = yes ] && [ -z "$_vc" ]; then
     _vcc=$(_bn_thc "$_p")
   fi
-  # Keep the columns layout aligned when some rows have a bar and this one doesn't
-  if [ -z "$_bar" ] && [ "$2" = pad ] && [ "$BN_BAR" = yes ]; then
-    _bar=$(printf "%$((BN_BAR_W + 1))s" '')
-  fi
   if [ "$2" = inline ]; then _lt=$_l; else _lt=$(printf "%-${BN_LABEL_W}s" "$_l"); fi
-  if [ "$2" = pad ]; then _vt=$(printf "%-${BN_VALUE_W}s" "$_v"); else _vt=$_v; fi
+  _vt=$_v
+  # Left column of the columns layout: pad the cell to the widest one (_CW, from _bn_colw)
+  # so the right column always starts in the same place
+  if [ "$2" = pad ]; then
+    _bn_cellw
+    [ "$_w" -lt "$_CW" ] && _vt="$_v$(printf "%$((_CW - _w))s" '')"
+  fi
   _it=''; [ -n "$_ic" ] && _it="$_CI$_ic$_R "
   _cell="$_it$_CL$_lt$_R$_CS$BN_SEP$_R$_bar$_vcc$_vt$_R"
 }
@@ -275,8 +295,15 @@ _bn_cell() {
 _bn_item() {
   case "$BN_LAYOUT" in
     columns)
-      _bn_cell "$1" pad
-      if [ "$_col" = 0 ]; then printf '%s%s' "$_ind" "$_cell"; _col=1; else printf '   %s\n' "$_cell"; _col=0; fi ;;
+      if [ "$_col" = 0 ]; then
+        _bn_cell "$1" pad
+        printf '%s%s' "$_ind" "$_cell"
+        _col=1
+      else
+        _bn_cell "$1" list
+        printf '   %s\n' "$_cell"
+        _col=0
+      fi ;;
     inline)
       _bn_cell "$1" inline
       if [ "$_inl" = 0 ]; then printf '%s%s' "$_ind" "$_cell"; _inl=1; else printf '%s  |  %s%s' "$_CS" "$_R" "$_cell"; fi ;;
@@ -285,7 +312,38 @@ _bn_item() {
       printf '%s%s\n' "$_ind" "$_cell" ;;
   esac
 }
-# Entry point: print the art (cycling BN_ART_COLOR per line for gradients), then each
+# Set _w to what varies in width between cells: the bar, the value, and how far the label
+# runs past BN_LABEL_W. Icon, padded label and separator are the same width in every cell.
+_bn_cellw() {
+  _w=${#_v}
+  [ -n "$_bar" ] && _w=$((_w + BN_BAR_W + 1))
+  [ "${#_l}" -gt "$BN_LABEL_W" ] && _w=$((_w + ${#_l} - BN_LABEL_W))
+  return 0
+}
+# Columns layout: set _CW to the widest cell (see _bn_cellw), reading every item once ahead
+# of printing, so the left column is padded to fit its longest value instead of a fixed width.
+_bn_colw() {
+  _CW=0
+  for _k in $BN_ITEMS; do
+    case "$_k" in
+      text[0-9]*) ;;
+      mounts)
+        _ifs=$IFS; IFS='
+'
+        for _m in $(_bn_mounts); do
+          IFS=$_ifs
+          _bn_cell "mnt:$_m" list; _bn_cellw
+          [ "$_w" -gt "$_CW" ] && _CW=$_w
+        done
+        IFS=$_ifs ;;
+      *)
+        _bn_cell "$_k" list; _bn_cellw
+        [ "$_w" -gt "$_CW" ] && _CW=$_w ;;
+    esac
+  done
+  return 0
+}
+# Entry point: print the art (BN_ART_COLOR spread over its lines for gradients), then each
 # entry in BN_ITEMS in order. textN entries are full-width static lines; "mounts"
 # expands to one row per mount; everything else is a normal item.
 _bn_show() {
@@ -294,14 +352,21 @@ _bn_show() {
   _CI=$(_bn_c "${BN_C_ICON:-}")
   _ind=$(printf "%${BN_INDENT}s" '')
   if [ -n "$(_bn_art)" ]; then
+    # Spread the colors over the art: line i of n gets color 1 + i*(m-1)/(n-1) of m, so a
+    # gradient always runs from its first color to its last, whatever the art's height
+    _n=$(_bn_art | wc -l)
     set -- $BN_ART_COLOR
+    _m=$#
+    _i=0
     _bn_art | while IFS= read -r _line; do
-      _c=${1:-}
-      if [ $# -gt 1 ]; then shift; set -- "$@" "$_c"; fi
+      if [ "$_m" -le 1 ] || [ "$_n" -le 1 ]; then _k=1; else _k=$((_i * (_m - 1) / (_n - 1) + 1)); fi
+      eval "_c=\${$_k:-}"
       printf '%s%s%s%s\n' "$_ind" "$(_bn_c "$_c")" "$_line" "$_R"
+      _i=$((_i + 1))
     done
     printf '\n'
   fi
+  [ "$BN_LAYOUT" = columns ] && _bn_colw
   # Banner title and credits sit between the art and the info items, like the
   # community-scripts banner they can come from
   _tl=0
@@ -683,7 +748,11 @@ draw() {
     printf '  %sUnsaved changes - press s in the main menu to save%s\n' "$YW" "$CL"
     DRAW_LINES=$((DRAW_LINES + 1))
   fi
-  if [[ -n ${1:-} ]]; then
+  if [[ $1 == '! '* ]]; then
+    # A heading starting with "! " is an alert: a solid red bar with an exclamation point
+    printf '  %s  ! %s  %s\n\n' "$ALERT" "${1#! }" "$CL"
+    DRAW_LINES=$((DRAW_LINES + 2))
+  elif [[ -n ${1:-} ]]; then
     printf '  %s%s%s\n\n' "$BOLD" "$1" "$CL"
     DRAW_LINES=$((DRAW_LINES + 2))
   fi
@@ -718,6 +787,15 @@ read_key() {
     ' ') KEY=space ;;
     *) KEY=$k ;;
   esac
+}
+
+# Print MENU_NOTE (any number of lines) under a menu heading and count it in DRAW_LINES.
+_menu_note() {
+  local line
+  [[ -n ${MENU_NOTE:-} ]] || return 0
+  while IFS= read -r line; do printf '  %s\n' "$line"; done <<<"$MENU_NOTE"
+  echo
+  DRAW_LINES=$((DRAW_LINES + $(wc -l <<<"$MENU_NOTE") + 1))
 }
 
 # Rows left for a menu's options under the preview, keeping $1 lines for its own footer.
@@ -756,6 +834,7 @@ menu_pick() {
       "$MENU_ON_MOVE" "$last"
     fi
     draw "$title"
+    _menu_note
     rows=$(menu_rows 3)
     ((cur < top)) && top=$cur
     ((cur >= top + rows)) && top=$((cur - rows + 1))
@@ -808,10 +887,7 @@ menu_check() {
   local title=$1 cur=0 top=0 i n=${#MENU[@]} rows k box all
   while true; do
     draw "$title"
-    if [[ -n ${MENU_NOTE:-} ]]; then
-      printf '  %s\n\n' "$MENU_NOTE"
-      DRAW_LINES=$((DRAW_LINES + 2))
-    fi
+    _menu_note
     rows=$(menu_rows 3)
     ((cur < top)) && top=$cur
     ((cur >= top + rows)) && top=$((cur - rows + 1))
@@ -825,7 +901,7 @@ menu_check() {
       fi
     done
     ((n > rows)) && printf '  %s%d-%d of %d%s\n' "$DIM" $((top + 1)) "$i" "$n" "$CL"
-    printf '\n  %s↑/↓ move   Space check   a all/none   Enter save   Esc cancel%s' "$DIM" "$CL"
+    printf '\n  %s↑/↓ move   Space check   a all/none   Enter done   Esc cancel%s' "$DIM" "$CL"
     read_key
     case $KEY in
       up) ((cur > 0)) && cur=$((cur - 1)) ;;
@@ -1237,6 +1313,7 @@ text_menu() {
 
 # Layout & style submenu (layout, widths, separator, bars, load colors, icon set). Enter on a
 # row changes it: on/off and list settings switch to the next value, numbers ask for input.
+# The columns layout sizes its left column to the longest value, so it has no width setting.
 style_menu() {
   local r i last=''
   # Bar presets as "full|empty" pairs, split on "|" so multi-byte characters survive
@@ -1246,12 +1323,11 @@ style_menu() {
     MENU=("1|1) Layout            $BN_LAYOUT"
       "2|2) Indent            $BN_INDENT"
       "3|3) Label width       $BN_LABEL_W"
-      "4|4) Column width      $BN_VALUE_W   (columns layout)"
-      "5|5) Separator         '$BN_SEP'"
-      "6|6) Usage bars        $BN_BAR   (all items; single items: Info items, g)"
-      "7|7) Bar width         $BN_BAR_W"
-      "8|8) Bar characters    $BN_BAR_FULL$BN_BAR_EMPTY"
-      "9|9) Load colors       $BN_THRESH   (yellow / red at high usage)"
+      "4|4) Separator         '$BN_SEP'"
+      "5|5) Usage bars        $BN_BAR   (all items; single items: Info items, g)"
+      "6|6) Bar width         $BN_BAR_W"
+      "7|7) Bar characters    $BN_BAR_FULL$BN_BAR_EMPTY"
+      "8|8) Load colors       $BN_THRESH   (yellow / red at high usage)"
       "i|i) Icons             $BN_ICONS   (off / unicode / emoji)")
     menu_pick "Layout & style - Enter changes the highlighted setting" "$last"
     last=$PICK
@@ -1262,16 +1338,15 @@ style_menu() {
         ;;
       2) ask_num "Indent" BN_INDENT 0 20 ;;
       3) ask_num "Label width" BN_LABEL_W 0 30 ;;
-      4) ask_num "Column width" BN_VALUE_W 5 60 ;;
-      5) read -rp "  Separator [$BN_SEP]: " r && [[ -n $r ]] && BN_SEP=$r DIRTY=1 ;;
-      6) [[ $BN_BAR == yes ]] && BN_BAR=no || BN_BAR=yes; DIRTY=1 ;;
-      7) ask_num "Bar width" BN_BAR_W 3 40 ;;
-      8)
+      4) read -rp "  Separator [$BN_SEP]: " r && [[ -n $r ]] && BN_SEP=$r DIRTY=1 ;;
+      5) [[ $BN_BAR == yes ]] && BN_BAR=no || BN_BAR=yes; DIRTY=1 ;;
+      6) ask_num "Bar width" BN_BAR_W 3 40 ;;
+      7)
         for i in "${!bars[@]}"; do [[ ${bars[i]} == "$BN_BAR_FULL|$BN_BAR_EMPTY" ]] && break; done
         r=${bars[(i + 1) % ${#bars[@]}]}
         BN_BAR_FULL=${r%%|*} BN_BAR_EMPTY=${r#*|} DIRTY=1
         ;;
-      9) [[ $BN_THRESH == yes ]] && BN_THRESH=no || BN_THRESH=yes; DIRTY=1 ;;
+      8) [[ $BN_THRESH == yes ]] && BN_THRESH=no || BN_THRESH=yes; DIRTY=1 ;;
       i)
         for i in "${!ICON_SETS[@]}"; do [[ ${ICON_SETS[i]} == "$BN_ICONS" ]] && break; done
         BN_ICONS=${ICON_SETS[(i + 1) % ${#ICON_SETS[@]}]} DIRTY=1
@@ -1894,8 +1969,8 @@ need_root() {
 # First run on a community-scripts container (no saved design yet). set_defaults has taken the
 # original banner's Banner Title ("<App> LXC Container") and Credits ("Provided by:
 # community-scripts ORG ...") into BN_TITLE and BN_CREDITS. Show both in a checklist, checked
-# (kept); unchecking removes one, and the preview follows. Then ask whether to also hide the
-# plain copy of the title and OS that community-scripts writes to /etc/motd.
+# (kept); unchecking removes one, and the preview follows. Then explain the plain copy of the
+# title and OS that community-scripts writes to /etc/motd, show it, and ask whether to hide it.
 first_run_cs() {
   [[ -f $CONF_FILE ]] && return 0
   is_cs_box || return 0
@@ -1913,16 +1988,22 @@ first_run_cs() {
   if ((${#MENU[@]})); then
     MENU_NOTE="Its banner has these parts. Uncheck any you want to remove (you can change them later in the menu)."
     MENU_ON_TOGGLE=_first_run_toggle
-    menu_check "community-scripts container detected" || { CHECKED[title]=1 CHECKED[credits]=1; }
+    menu_check "! community-scripts container detected" || { CHECKED[title]=1 CHECKED[credits]=1; }
     MENU_NOTE='' MENU_ON_TOGGLE=''
     _first_run_toggle
   fi
-  # community-scripts also writes a plain copy of the title and OS to /etc/motd, which login
-  # prints above any profile.d banner. Offer to hide it with the usual, exactly reversible
-  # quiet mode, applied on save like every other change.
+  # Hiding uses the usual, exactly reversible quiet mode, applied on save like every change
   if [[ -f $MOTD_FILE ]] && grep -q 'LXC Container' "$MOTD_FILE" && ! is_quiet; then
-    MENU=("h|Hide it" "k|Keep it")
-    menu_pick "Also hide the plain copy of the title and OS that community-scripts prints above the banner?"
+    MENU_NOTE="community-scripts also put a short plain-text message in $MOTD_FILE. It prints at
+every login just above the banner, so you would see the old title and OS first:
+
+$(grep -v '^[[:space:]]*$' "$MOTD_FILE" | head -n 4 | sed 's/^/      /')
+
+Hiding it means only your banner shows when you log in. Nothing is deleted: Bannarr
+renames the file, and going back to the original banner (menu r, or --revert) restores it."
+    MENU=("h|Hide it - only my banner shows at login" "k|Keep it - show it above my banner")
+    menu_pick "The message above the banner"
+    MENU_NOTE=''
     [[ $PICK == h ]] && QUIET_ON_SAVE=1
   fi
   return 0

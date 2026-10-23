@@ -62,8 +62,9 @@ live preview and an undo button.
   welcome box and more), type any text and turn it into block letters, or paste your own.
 - **Art size.** Make block-letter art small, medium or large, or let Bannarr pick the biggest
   size that fits a normal terminal.
-- **Colors.** Color the art with a single color or a gradient such as ocean, fire, sunset or
-  rainbow.
+- **Colors.** Color the art with a single color or one of 18 gradients, such as ocean, fire,
+  sunset, aurora, neon, lava or gold, or make your own. A gradient always runs from its first
+  color to its last, whatever the art's height.
 - **19 system details.** Hostname, IP address, OS, uptime, CPU, memory, disk space and more.
   Show the ones you want, in the order you want, with your own labels and colors.
 - **Every disk.** List each attached drive with how much space is free, or pick just the ones
