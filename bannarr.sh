@@ -342,7 +342,8 @@ is_cs_box() { [[ -f $CS_FILE || -f $CS_DISABLED ]]; }
 # Print the title line ("Plex LXC Container") and the credit line ("🌐 Provided by:
 # community-scripts ORG | GitHub: ...") from the community-scripts banner, one per line, in
 # their original order. Each is taken exactly as written there, with only the echo wrapper,
-# color codes and extra spaces removed. Prints nothing if the banner or the lines are missing.
+# color codes, a leading icon and extra spaces removed. Prints nothing if the banner or the
+# lines are missing.
 cs_banner_lines() {
   local f line
   for f in "$CS_FILE" "$CS_DISABLED" ''; do [[ -f $f ]] && break; done
@@ -355,6 +356,9 @@ cs_banner_lines() {
     line=${line//\\033\[*([0-9;])m/}
     line=${line//\\e\[*([0-9;])m/}
     line=${line//+([[:space:]])/ }
+    # Drop a leading icon such as the 🌐 on the credit line: emoji are two columns wide in
+    # terminals, which pushed the text one column out of line with the rest of the banner
+    line=${line##+([!A-Za-z0-9])}
     line=${line# } line=${line% }
     [[ -n $line ]] && printf '%s\n' "$line"
   done <"$f"
