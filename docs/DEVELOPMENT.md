@@ -171,7 +171,7 @@ All settings live in `bannarr.conf` and are embedded in the profile script.
 | `BN_B_<key>` | *(empty = follow `BN_BAR`)* | `yes`/`no`: usage bar for one item (`cpu`, `memory`, `swap`, `disk`, `mounts`) |
 | `BN_BAR_W` | `10` | Bar width in cells |
 | `BN_BAR_FULL` / `BN_BAR_EMPTY` | `█` / `·` | Bar characters. The fill takes the threshold or value color and the empty track the separator color. `░` was dropped as the default because some fonts lack it and the substitute glyph overflows its line |
-| `BN_THRESH` | `yes` | Color bars (or values, when bars are off) green/yellow/red by usage |
+| `BN_THRESH` | `yes` | Color bar fills green / yellow (60%+) / red (85%+) by usage. Without a bar, the value keeps `BN_C_VALUE` and turns yellow or red only at 60%+, so switching a bar off never changes normal text colors |
 | `BN_ICONS` | `unicode` | Icon set: `off`, `unicode` (code page 437 symbols only), `emoji` |
 | `BN_MOUNTS` | *(empty = auto)* | `\|`-separated mount points for the `mounts` item |
 | `BN_ART_COLOR` | ocean gradient | One color, or a space-separated list cycled per art line |

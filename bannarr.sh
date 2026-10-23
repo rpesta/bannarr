@@ -202,7 +202,9 @@ _bn_val() {
       sleep 0.2 2>/dev/null || sleep 1
       _b=$(awk '/^cpu /{print $2+$3+$4+$5+$6+$7+$8, $5+$6}' /proc/stat 2>/dev/null)
       _p=$(echo "$_a $_b" | awk 'NF==4{dt=$3-$1;di=$4-$2;printf "%d",(dt>0?(dt-di)*100/dt:0)}')
-      [ -n "$_p" ] && _v="$_p% of $(grep -c '^processor' /proc/cpuinfo 2>/dev/null) cores" ;;
+      _n=$(grep -c '^processor' /proc/cpuinfo 2>/dev/null)
+      if [ "$_n" = 1 ]; then _u=core; else _u=cores; fi
+      [ -n "$_p" ] && _v="$_p% of $_n $_u" ;;
     memory)
       set -- $(awk '/^MemTotal:/{t=$2}/^MemAvailable:/{a=$2}/^MemFree:/{f=$2}/^Buffers:/{b=$2}/^Cached:/{c=$2}
         END{if(!a)a=f+b+c;u=t-a;printf "%d %.1f %.1f",(t?u*100/t:0),u/1048576,t/1048576}' /proc/meminfo 2>/dev/null)
@@ -239,7 +241,9 @@ _bn_bar() {
 # $1 = item key (or mnt:<path>); $2 = list | pad (columns layout) | inline.
 # Per-item value color BN_VC_<key> wins; mounts share the "mounts" key for color/icon.
 # A bar shows when the item has a usage percentage and BN_B_<key> (or, if unset, BN_BAR)
-# is "yes", so bars can be switched on or off for all items or one at a time.
+# is "yes", so bars can be switched on or off for all items or one at a time. Load colors
+# (BN_THRESH) color the bar; with no bar, the value keeps its usual color and only turns
+# yellow or red at high usage, so switching a bar off doesn't change how the text looks.
 _bn_cell() {
   case "$1" in mnt:*) _ck=mounts ;; *) _ck=$1 ;; esac
   _bn_val "$1"; _bn_label "$1"; _bn_icon "$_ck"
@@ -250,7 +254,7 @@ _bn_cell() {
     _bn_bar "$_p"
     if [ "$BN_THRESH" = yes ]; then _bfc=$(_bn_thc "$_p"); else _bfc=$_vcc; fi
     _bar="$_bfc$_bf$_R$_CS$_be$_R "
-  elif [ -n "$_p" ] && [ "$BN_THRESH" = yes ] && [ -z "$_vc" ]; then
+  elif [ -n "$_p" ] && [ "$_p" -ge 60 ] && [ "$BN_THRESH" = yes ] && [ -z "$_vc" ]; then
     _vcc=$(_bn_thc "$_p")
   fi
   # Keep the columns layout aligned when some rows have a bar and this one doesn't
@@ -1010,7 +1014,7 @@ style_menu() {
     printf '  6) Usage bars        %s   (all items; switch single items in Info items with g)\n' "$BN_BAR"
     printf '  7) Bar width         %s\n' "$BN_BAR_W"
     printf '  8) Bar characters    %s%s\n' "$BN_BAR_FULL" "$BN_BAR_EMPTY"
-    printf '  9) Load colors       %s   (green / yellow / red by usage)\n' "$BN_THRESH"
+    printf '  9) Load colors       %s   (bars green / yellow / red; without a bar, high usage turns the value yellow / red)\n' "$BN_THRESH"
     printf '  i) Icons             %s   (off / unicode / emoji)\n' "$BN_ICONS"
     echo "  b) Back"
     read -rp "  › " r
